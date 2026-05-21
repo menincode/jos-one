@@ -1,0 +1,57 @@
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+*.spec.bak
+
+# Node
+node_modules/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+
+# App build artifacts
+dist/
+build/
+
+# Auto-downloaded plugin executables (ffbinaries, …)
+plugins/
+
+# Local app data (SQLite, Fernet key)
+data/
+data/*.db
+.fernet.key
+
+# Environment
+.env
+.env.local
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Test / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+frontend/coverage/
+
+# UPX backup
+*.exe.bak
+
+# Local logs / scratch
+frontend-dev.log
+*.log
