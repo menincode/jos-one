@@ -15,7 +15,12 @@ function loadStoredUser(): AppUser | null {
     if (!raw) {
       return null;
     }
-    return JSON.parse(raw) as AppUser;
+    const parsed = JSON.parse(raw) as AppUser;
+    return {
+      ...parsed,
+      role: parsed.role?.trim() || null,
+      scopes: Array.isArray(parsed.scopes) ? parsed.scopes : [],
+    };
   } catch {
     return null;
   }
@@ -40,16 +45,21 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
-  isLoading: true,
+  isLoading: false,
   error: null,
 
   initialize: async () => {
     set({ isLoading: true, error: null });
-    const user = loadStoredUser();
-    if (user) {
-      migrateDefaultWorkspaceToUser(String(user.id));
+    try {
+      const user = loadStoredUser();
+      if (user) {
+        migrateDefaultWorkspaceToUser(String(user.id));
+      }
+      set({ user, isLoading: false, error: null });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to restore session.";
+      set({ user: null, isLoading: false, error: message });
     }
-    set({ user, isLoading: false });
   },
 
   signIn: async (username, password) => {

@@ -1,0 +1,32 @@
+[project]
+name = "jos-desktop"
+version = "0.1.0"
+description = "pywebview desktop app with React frontend"
+requires-python = ">=3.11"
+dependencies = [
+  "pywebview>=5.0",
+  "cryptography>=42.0",
+  "ffmpeg-python>=0.2.0",
+]
+
+[dependency-groups]
+dev = [
+  "pillow>=10.0",
+  "pyinstaller>=6.0",
+  "pytest>=8.0",
+  "playwright>=1.49",
+  "pyautogui>=0.9.54",
+  "pygetwindow>=0.0.9",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+pythonpath = ["."]
+markers = [
+    "integration: real FFmpeg/subprocess smoke (slower; skip in CI with -m 'not integration')",
+    "e2e: desktop end-to-end (requires RUN_PYAUTO_E2E=1)",
+    "pyauto: PyAutoGUI window + Playwright CDP UI drive",
+]

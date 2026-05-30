@@ -12,11 +12,14 @@ const AUTH_USER_KEY = "jos.auth.user";
 export interface VideoMergeWorkspaceData {
   mix_rows: MixRowPayload[];
   videos_by_folder: Record<string, VideoFileItem[]>;
+  /** Last selected mix row in the Mix Video table (restored on reopen). */
+  selected_mix_row_id: string | null;
 }
 
 const EMPTY_WORKSPACE: VideoMergeWorkspaceData = {
   mix_rows: [],
   videos_by_folder: {},
+  selected_mix_row_id: null,
 };
 
 function canUseStorage(): boolean {
@@ -100,9 +103,14 @@ function normalizeWorkspace(raw: unknown): VideoMergeWorkspaceData {
       videosByFolder[key] = normalizeVideos(list);
     }
   }
+  const selectedMixRowId =
+    typeof data.selected_mix_row_id === "string" && data.selected_mix_row_id.trim()
+      ? data.selected_mix_row_id.trim()
+      : null;
   return {
     mix_rows: mixRowsToPayload(mixRowsFromPayload(data.mix_rows as MixRowPayload[] | undefined)),
     videos_by_folder: videosByFolder,
+    selected_mix_row_id: selectedMixRowId,
   };
 }
 
@@ -192,6 +200,7 @@ export function persistFolderVideosToWorkspace(
   const next: VideoMergeWorkspaceData = {
     mix_rows: mixRows ?? current.mix_rows,
     videos_by_folder: { ...current.videos_by_folder },
+    selected_mix_row_id: current.selected_mix_row_id,
   };
   if (folder) {
     next.videos_by_folder[folder] = normalizeVideos(videos);
@@ -202,9 +211,26 @@ export function persistFolderVideosToWorkspace(
 export function persistMixRowsToWorkspace(
   mixRows: MixRowPayload[],
   userKey?: string,
+  selectedMixRowId?: string | null,
 ): VideoMergeWorkspaceData {
   const current = loadVideoMergeWorkspace(userKey);
-  return saveVideoMergeWorkspace({ ...current, mix_rows: mixRows }, userKey);
+  return saveVideoMergeWorkspace(
+    {
+      ...current,
+      mix_rows: mixRows,
+      selected_mix_row_id:
+        selectedMixRowId !== undefined ? selectedMixRowId : current.selected_mix_row_id,
+    },
+    userKey,
+  );
+}
+
+export function persistSelectedMixRowToWorkspace(
+  selectedMixRowId: string | null,
+  userKey?: string,
+): VideoMergeWorkspaceData {
+  const current = loadVideoMergeWorkspace(userKey);
+  return saveVideoMergeWorkspace({ ...current, selected_mix_row_id: selectedMixRowId }, userKey);
 }
 
 /** Pull mix_rows from SQLite payload into localStorage and stop relying on DB for workspace. */

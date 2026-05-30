@@ -14,6 +14,7 @@ import {
 } from "@/lib/pywebview/readiness";
 import type {
   LoginSettings,
+  RemoveWatermarkSettings,
   SaveLoginSettingsPayload,
   VideoMergeConfigSettings,
   VideoMergeSettings,
@@ -28,13 +29,16 @@ import {
 
 const LOGIN_SETTINGS_STORAGE_KEY = "jos.settings.login";
 const VIDEO_MERGE_CONFIG_STORAGE_KEY = "jos.settings.video-merge.config";
+const REMOVE_WATERMARK_SETTINGS_STORAGE_KEY = "jos.settings.remove-watermark";
 const LEGACY_VIDEO_MERGE_SETTINGS_STORAGE_KEY = "jos.settings.video-merge";
 const LEGACY_LOGIN_STORAGE_KEY = "jos.auth.saved-credentials";
 
 let loginCache: LoginSettings | null = null;
 let videoMergeCache: VideoMergeSettings | null = null;
+let removeWatermarkCache: RemoveWatermarkSettings | null = null;
 let loginCacheFromBridge = false;
 let videoMergeCacheFromBridge = false;
+let removeWatermarkCacheFromBridge = false;
 let preloadPromise: Promise<void> | null = null;
 
 const BRIDGE_WAIT_MS = 15_000;
@@ -178,6 +182,52 @@ function saveVideoMergeConfigToLocalStorage(
   return next;
 }
 
+function normalizeThreadCount(raw: unknown): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return 4;
+  }
+  return Math.max(1, Math.min(32, Math.floor(parsed)));
+}
+
+function loadRemoveWatermarkFromLocalStorage(): RemoveWatermarkSettings {
+  if (!canUseStorage()) {
+    return { input_folder: "", output_folder: "", thread_count: 4 };
+  }
+  try {
+    const raw = localStorage.getItem(REMOVE_WATERMARK_SETTINGS_STORAGE_KEY);
+    if (!raw) {
+      return { input_folder: "", output_folder: "", thread_count: 4 };
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) {
+      return { input_folder: "", output_folder: "", thread_count: 4 };
+    }
+    const data = parsed as Partial<RemoveWatermarkSettings>;
+    return {
+      input_folder: typeof data.input_folder === "string" ? data.input_folder : "",
+      output_folder: typeof data.output_folder === "string" ? data.output_folder : "",
+      thread_count: normalizeThreadCount(data.thread_count),
+    };
+  } catch {
+    return { input_folder: "", output_folder: "", thread_count: 4 };
+  }
+}
+
+function saveRemoveWatermarkToLocalStorage(
+  settings: RemoveWatermarkSettings,
+): RemoveWatermarkSettings {
+  const next: RemoveWatermarkSettings = {
+    input_folder: settings.input_folder.trim(),
+    output_folder: settings.output_folder.trim(),
+    thread_count: normalizeThreadCount(settings.thread_count),
+  };
+  if (canUseStorage()) {
+    localStorage.setItem(REMOVE_WATERMARK_SETTINGS_STORAGE_KEY, JSON.stringify(next));
+  }
+  return next;
+}
+
 function mergeVideoMergeSettings(
   config: VideoMergeConfigSettings,
   mixRows: MixRowPayload[] | undefined,
@@ -220,6 +270,19 @@ async function readVideoMergeConfigFromBackend(): Promise<VideoMergeConfigSettin
   return config;
 }
 
+async function readRemoveWatermarkFromBackend(): Promise<RemoveWatermarkSettings> {
+  if (!(await useSettingsBridge())) {
+    return loadRemoveWatermarkFromLocalStorage();
+  }
+  const client = await createBridgeClient();
+  const result = await client.getRemoveWatermarkSettings();
+  return {
+    input_folder: result.input_folder?.trim() ?? "",
+    output_folder: result.output_folder?.trim() ?? "",
+    thread_count: normalizeThreadCount(result.thread_count),
+  };
+}
+
 function resolveWorkspaceUserKey(userKey?: string): string {
   return (userKey?.trim() || getVideoMergeWorkspaceUserKey()).trim() || "default";
 }
@@ -242,6 +305,20 @@ async function readVideoMergeConfigResolved(): Promise<VideoMergeConfigSettings>
   return readVideoMergeConfigFromBackend();
 }
 
+async function readRemoveWatermarkResolved(): Promise<RemoveWatermarkSettings> {
+  if (!isPywebviewShell() && !isPywebviewApiReady()) {
+    return loadRemoveWatermarkFromLocalStorage();
+  }
+  const bridge = await ensureSettingsBackendReady();
+  if (!bridge) {
+    return loadRemoveWatermarkFromLocalStorage();
+  }
+  if (removeWatermarkCache && removeWatermarkCacheFromBridge) {
+    return removeWatermarkCache;
+  }
+  return readRemoveWatermarkFromBackend();
+}
+
 export function mixRowsFromSettings(settings: VideoMergeSettings): MixRow[] {
   return mixRowsFromPayload(settings.mix_rows);
 }
@@ -250,8 +327,10 @@ export function mixRowsFromSettings(settings: VideoMergeSettings): MixRow[] {
 export function resetSettingsCacheForTests(): void {
   loginCache = null;
   videoMergeCache = null;
+  removeWatermarkCache = null;
   loginCacheFromBridge = false;
   videoMergeCacheFromBridge = false;
+  removeWatermarkCacheFromBridge = false;
   preloadPromise = null;
 }
 
@@ -262,17 +341,20 @@ export function preloadAppSettings(): Promise<void> {
       const bridge = await ensureSettingsBackendReady();
       await migrateLegacyLoginFromLocalStorage();
       if (bridge) {
-        const [login, config] = await Promise.all([
+        const [login, config, watermark] = await Promise.all([
           readLoginSettingsFromBackend(),
           readVideoMergeConfigFromBackend(),
+          readRemoveWatermarkFromBackend(),
         ]);
         loginCache = login;
         const workspaceKey = resolveWorkspaceUserKey();
         migrateDefaultWorkspaceToUser(workspaceKey);
         const workspace = loadVideoMergeWorkspace(workspaceKey);
         videoMergeCache = mergeVideoMergeSettings(config, workspace.mix_rows);
+        removeWatermarkCache = watermark;
         loginCacheFromBridge = true;
         videoMergeCacheFromBridge = true;
+        removeWatermarkCacheFromBridge = true;
         return;
       }
       loginCache = loadLoginFromLocalStorage();
@@ -282,8 +364,10 @@ export function preloadAppSettings(): Promise<void> {
         loadVideoMergeConfigFromLocalStorage(),
         loadVideoMergeWorkspace(workspaceKey).mix_rows,
       );
+      removeWatermarkCache = loadRemoveWatermarkFromLocalStorage();
       loginCacheFromBridge = false;
       videoMergeCacheFromBridge = false;
+      removeWatermarkCacheFromBridge = false;
     })().catch((err) => {
       preloadPromise = null;
       throw err;
@@ -319,6 +403,10 @@ export async function persistLoginSettings(
   payload: SaveLoginSettingsPayload,
 ): Promise<LoginSettings> {
   if (!isPywebviewShell()) {
+    return saveLoginToLocalStorage(payload);
+  }
+  const bridge = await ensureSettingsBackendReady();
+  if (!bridge) {
     return saveLoginToLocalStorage(payload);
   }
   const client = await createBridgeClient();
@@ -414,7 +502,6 @@ export async function persistVideoMergeConfig(
     payload.input_folder,
     payload.output_folder,
     payload.export_settings,
-    [],
   );
   const next: VideoMergeConfigSettings = {
     input_folder: result.input_folder ?? "",
@@ -431,12 +518,29 @@ export async function persistVideoMergeConfig(
 export async function persistVideoMergeWorkspace(
   mixRows: MixRowPayload[],
   userKey?: string,
+  selectedMixRowId?: string | null,
 ): Promise<void> {
   const workspaceKey = resolveWorkspaceUserKey(userKey);
-  persistMixRowsToWorkspace(mixRows, workspaceKey);
+  persistMixRowsToWorkspace(mixRows, workspaceKey, selectedMixRowId);
   if (videoMergeCache) {
     videoMergeCache = { ...videoMergeCache, mix_rows: mixRows };
   }
+
+  if (!isPywebviewShell() && !isPywebviewApiReady()) {
+    return;
+  }
+  const bridge = await ensureSettingsBackendReady();
+  if (!bridge) {
+    return;
+  }
+  const config = videoMergeCache ?? (await readVideoMergeConfigResolved());
+  const client = await createBridgeClient();
+  await client.saveVideoMergeSettings(
+    config.input_folder,
+    config.output_folder,
+    config.export_settings,
+    mixRows,
+  );
 }
 
 export async function persistVideoMergeSettings(
@@ -452,6 +556,71 @@ export async function persistVideoMergeSettings(
   await persistVideoMergeWorkspace(mixRows);
   const next = mergeVideoMergeSettings(config, mixRows);
   videoMergeCache = next;
+  return next;
+}
+
+export function invalidateRemoveWatermarkSettingsCache(): void {
+  removeWatermarkCache = null;
+  removeWatermarkCacheFromBridge = false;
+}
+
+export async function fetchRemoveWatermarkSettings(): Promise<RemoveWatermarkSettings> {
+  if (!isPywebviewShell() && !isPywebviewApiReady()) {
+    if (removeWatermarkCache) {
+      return removeWatermarkCache;
+    }
+    return loadRemoveWatermarkFromLocalStorage();
+  }
+  const bridge = await ensureSettingsBackendReady();
+  if (bridge) {
+    const settings = await readRemoveWatermarkResolved();
+    removeWatermarkCache = settings;
+    removeWatermarkCacheFromBridge = true;
+    return settings;
+  }
+  if (removeWatermarkCache) {
+    return removeWatermarkCache;
+  }
+  return loadRemoveWatermarkFromLocalStorage();
+}
+
+export async function persistRemoveWatermarkSettings(
+  settings: RemoveWatermarkSettings,
+): Promise<RemoveWatermarkSettings> {
+  const payload: RemoveWatermarkSettings = {
+    input_folder: settings.input_folder.trim(),
+    output_folder: settings.output_folder.trim(),
+    thread_count: normalizeThreadCount(settings.thread_count),
+  };
+
+  if (!isPywebviewShell()) {
+    const saved = saveRemoveWatermarkToLocalStorage(payload);
+    removeWatermarkCache = saved;
+    removeWatermarkCacheFromBridge = false;
+    return saved;
+  }
+
+  const bridge = await ensureSettingsBackendReady();
+  if (!bridge) {
+    const saved = saveRemoveWatermarkToLocalStorage(payload);
+    removeWatermarkCache = saved;
+    removeWatermarkCacheFromBridge = false;
+    return saved;
+  }
+
+  const client = await createBridgeClient();
+  const result = await client.saveRemoveWatermarkSettings(
+    payload.input_folder,
+    payload.output_folder,
+    payload.thread_count,
+  );
+  const next: RemoveWatermarkSettings = {
+    input_folder: result.input_folder?.trim() ?? "",
+    output_folder: result.output_folder?.trim() ?? "",
+    thread_count: normalizeThreadCount(result.thread_count),
+  };
+  removeWatermarkCache = next;
+  removeWatermarkCacheFromBridge = true;
   return next;
 }
 

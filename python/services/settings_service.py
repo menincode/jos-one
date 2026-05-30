@@ -10,9 +10,14 @@ from cryptography.fernet import Fernet, InvalidToken
 
 from python.config import get_app_data_dir
 from python.db import delete_setting, get_setting, set_setting
-from python.services.transition_spec import parse_transition_effect
-
 logger = logging.getLogger(__name__)
+
+
+def _normalize_scene_transition(value: str) -> str:
+    clean = value.strip().lower()
+    if clean in ("fade", "none", "wipe", "slide", "dissolve"):
+        return clean
+    return "fade"
 
 KEY_LOGIN_REMEMBER = "login.remember_account"
 KEY_LOGIN_USERNAME = "login.username"
@@ -23,12 +28,16 @@ KEY_VIDEO_OUTPUT = "video_merge.output_folder"
 KEY_VIDEO_EXPORT = "video_merge.export_settings"
 KEY_VIDEO_MIX_ROWS = "video_merge.mix_rows"
 
+KEY_WATERMARK_INPUT = "remove_watermark.input_folder"
+KEY_WATERMARK_OUTPUT = "remove_watermark.output_folder"
+KEY_WATERMARK_THREADS = "remove_watermark.thread_count"
+
 DEFAULT_VIDEO_EXPORT: dict[str, str] = {
     "format": "mp4",
     "resolution": "1920x1080",
     "fps": "30",
-    "durationMinSec": "60",
-    "durationMaxSec": "90",
+    "durationMinSec": "3600",
+    "durationMaxSec": "5400",
     "zoomMin": "1",
     "zoomMax": "1.2",
     "speedMin": "0.9",
@@ -86,7 +95,9 @@ def _normalize_export_settings(raw: dict[str, Any]) -> dict[str, str]:
             merged[key] = value
         elif value is not None:
             merged[key] = str(value)
-    merged["sceneTransition"] = parse_transition_effect(merged)
+    merged["sceneTransition"] = _normalize_scene_transition(
+        str(merged.get("sceneTransition", "fade"))
+    )
     return merged
 
 
@@ -171,6 +182,36 @@ def save_video_merge_settings(
     set_setting(KEY_VIDEO_OUTPUT, output_folder.strip())
     normalized = _normalize_export_settings(export_settings)
     set_setting(KEY_VIDEO_EXPORT, json.dumps(normalized, ensure_ascii=False))
-    # Mix rows and folder video cache live in browser localStorage, not SQLite.
-    set_setting(KEY_VIDEO_MIX_ROWS, json.dumps([], ensure_ascii=False))
+    # When mix_rows is omitted (None), keep existing SQLite mix rows (config-only save).
+    if mix_rows is not None:
+        normalized_mix = _normalize_mix_rows(mix_rows)
+        set_setting(
+            KEY_VIDEO_MIX_ROWS,
+            json.dumps(normalized_mix, ensure_ascii=False),
+        )
     return get_video_merge_settings()
+
+
+def get_remove_watermark_settings() -> dict[str, str | int]:
+    raw_threads = get_setting(KEY_WATERMARK_THREADS, "4").strip()
+    try:
+        thread_count = max(1, min(32, int(raw_threads)))
+    except ValueError:
+        thread_count = 4
+    return {
+        "input_folder": get_setting(KEY_WATERMARK_INPUT, ""),
+        "output_folder": get_setting(KEY_WATERMARK_OUTPUT, ""),
+        "thread_count": thread_count,
+    }
+
+
+def save_remove_watermark_settings(
+    input_folder: str,
+    output_folder: str,
+    thread_count: int,
+) -> dict[str, str | int]:
+    safe_threads = max(1, min(32, int(thread_count or 1)))
+    set_setting(KEY_WATERMARK_INPUT, input_folder.strip())
+    set_setting(KEY_WATERMARK_OUTPUT, output_folder.strip())
+    set_setting(KEY_WATERMARK_THREADS, str(safe_threads))
+    return get_remove_watermark_settings()

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveMixRowDisplay } from "@/features/video-merge/mix-row-job-status";
+import {
+  doneStatusShortLabel,
+  resolveMixRowDisplay,
+  runningStatusShortLabel,
+} from "@/features/video-merge/mix-row-job-status";
 import { buildMixValidationContext } from "@/features/video-merge/mix-row-utils";
 import type { MixRow } from "@/features/video-merge/mix-row-types";
 import type { VideoFileItem } from "@/lib/pywebview/types";
@@ -44,7 +48,54 @@ describe("resolveMixRowDisplay", () => {
       true,
     );
     expect(display.key).toBe("running");
-    expect(display.label).toBe("Đang ghép");
+    expect(display.label).toBe("Đang xử lý");
+    expect(display.showErrorInfo).toBe(false);
+  });
+
+  it("shows pipeline phase while running", () => {
+    const display = resolveMixRowDisplay(
+      readyRow,
+      0,
+      videos,
+      {
+        status: "running",
+        phase: "normalize",
+        message: "Chuẩn hóa · Clip 2/5: long-name.mp4 · 35.6x · 01:40:01",
+      },
+      true,
+    );
+    expect(display.label).toBe("Chuẩn hóa · Clip 2/5");
+    expect(display.showErrorInfo).toBe(true);
+  });
+
+  it("shows clip step and detail while running without phase", () => {
+    const message =
+      "Chuẩn hóa · Clip 2/5: long-name.mp4 · 35.6x · 01:40:01";
+    expect(runningStatusShortLabel(message)).toBe("Chuẩn hóa · Clip 2/5");
+    const display = resolveMixRowDisplay(
+      readyRow,
+      0,
+      videos,
+      { status: "running", message },
+      true,
+    );
+    expect(display.label).toBe("Chuẩn hóa · Clip 2/5");
+    expect(display.showErrorInfo).toBe(true);
+    expect(display.errorMessage).toBe(message);
+  });
+
+  it("shows done summary with duration and speed", () => {
+    const message = "Thời lượng xuất (FFmpeg): 90.50s · speed 4.41x";
+    expect(doneStatusShortLabel(message)).toBe("Xong · 91s · 4.4x");
+    const display = resolveMixRowDisplay(
+      readyRow,
+      0,
+      videos,
+      { status: "done", message },
+      false,
+    );
+    expect(display.label).toContain("Xong");
+    expect(display.showErrorInfo).toBe(true);
   });
 
   it("shows probing label while folder durations load", () => {

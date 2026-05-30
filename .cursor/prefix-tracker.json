@@ -1,0 +1,15 @@
+{
+  "_comment": "Track last used prefix numbers for auto-generating filenames",
+  "_format": "Prefix format: [PREFIX][NUMBER]-[name].md where NUMBER is zero-padded 3 digits",
+  "_last_updated": "2026-03-26",
+  "FR": 9,
+  "_DS002_plans": "docs/04-plans/DS002/FR001..FR006",
+  "_DS003_plans": "docs/04-plans/DS003/FR001..FR005",
+  "RV": 2,
+  "RS": 3,
+  "DS": 5,
+  "DOC": 0,
+  "OB": 0,
+  "AU": 0,
+  "IM": 0
+}

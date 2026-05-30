@@ -27,6 +27,9 @@ build/
 # Auto-downloaded plugin executables (ffbinaries, …)
 plugins/
 
+# Generated export/merge intermediates (see python/services/repo_temp.py)
+temp/
+
 # Local app data (SQLite, Fernet key)
 data/
 data/*.db
@@ -55,3 +58,6 @@ frontend/coverage/
 # Local logs / scratch
 frontend-dev.log
 *.log
+
+# Local MCP config (may contain API keys — copy from .cursor/mcp.json.example)
+.cursor/mcp.json

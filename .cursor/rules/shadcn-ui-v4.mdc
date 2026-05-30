@@ -1,0 +1,27 @@
+---
+description: Desktop frontend — chỉ dùng shadcn/ui v4 components
+globs: frontend/**/*.{tsx,ts,css}
+alwaysApply: false
+---
+
+# shadcn/ui v4 (desktop frontend)
+
+## Bắt buộc
+
+- Mọi UI interactive dùng component từ `@/components/ui/*` (shadcn v4 đã add vào repo).
+- Thêm component mới: `yarn dlx shadcn@latest add <name>` — không viết tay file trong `components/ui/` trừ khi customize sau khi đã add.
+
+## Cấm
+
+- `<button>`, `<input>`, modal/dialog thuần HTML/CSS khi đã có `Button`, `Input`, `Dialog`, … trong shadcn.
+- Cài thư viện UI khác (MUI, Chakra, Ant Design) cho app này.
+- Duplicate Radix wrapper riêng khi shadcn đã có component tương đương.
+
+## Compose
+
+- Page/layout có thể dùng Tailwind utilities; **controls** (form, table, toast, menu) qua shadcn.
+
+## Tham chiếu
+
+- [ui.shadcn.com](https://ui.shadcn.com) (v4)
+- Tailwind v4: `@import "tailwindcss"` trong `frontend/src/index.css`

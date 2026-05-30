@@ -1,0 +1,178 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+:root {
+  --font-login: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --josvn-login-gradient:
+    radial-gradient(ellipse 95% 75% at 8% 0%, rgba(99, 102, 241, 0.62) 0%, transparent 52%),
+    radial-gradient(ellipse 80% 65% at 95% 8%, rgba(6, 182, 212, 0.55) 0%, transparent 48%),
+    radial-gradient(ellipse 70% 60% at 50% 108%, rgba(168, 85, 247, 0.48) 0%, transparent 50%),
+    radial-gradient(ellipse 55% 50% at 68% 58%, rgba(236, 72, 153, 0.28) 0%, transparent 46%),
+    radial-gradient(ellipse 45% 40% at 22% 62%, rgba(29, 185, 195, 0.4) 0%, transparent 48%),
+    radial-gradient(ellipse 35% 30% at 50% 35%, rgba(79, 70, 229, 0.22) 0%, transparent 55%),
+    linear-gradient(155deg, #020308 0%, #1f2641 28%, #0a1038 52%, #14082e 76%, #03040c 100%);
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+}
+
+/* Authenticated app shell — extracted from Settings (Cài đặt) reference UI */
+.app-theme {
+  --app-bg: #0b0e1e;
+  --app-surface: #1a1f35;
+  --app-muted: #8e94a5;
+  --app-nav-active: #a8b4ff;
+  --app-accent: #1db9c3;
+  --radius: 1.125rem;
+  --background: #0b0e1e;
+  --foreground: #ffffff;
+  --card: #1a1f35;
+  --card-foreground: #ffffff;
+  --primary: #1db9c3;
+  --primary-foreground: #0b0e1e;
+  --secondary: #161b2c;
+  --secondary-foreground: #ffffff;
+  --muted: #161b2c;
+  --muted-foreground: #8e94a5;
+  --accent: #1a1f35;
+  --accent-foreground: #ffffff;
+  --border: rgba(255, 255, 255, 0.06);
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: #1db9c3;
+}
+
+.app-theme .divide-y > * + * {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Thin group dividers in native export selects (replaces heavy optgroup bars) */
+.app-theme select option.export-select-separator {
+  font-size: 0.5rem;
+  line-height: 0.625rem;
+  color: rgba(255, 255, 255, 0.22);
+  background-color: #1a1f35;
+  padding-block: 1px;
+  letter-spacing: 0.12em;
+}
+
+
+@keyframes cursor-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes login-aurora-shift {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: translateX(-8%) skewY(-2deg);
+  }
+  50% {
+    opacity: 0.75;
+    transform: translateX(8%) skewY(2deg);
+  }
+}
+
+@keyframes login-grid-pulse {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+  50% {
+    opacity: 0.28;
+  }
+}
+
+@layer utilities {
+  .animate-cursor-blink {
+    animation: cursor-blink 1s step-end infinite;
+  }
+
+  .animate-login-aurora {
+    animation: login-aurora-shift 10s ease-in-out infinite;
+  }
+
+  .animate-login-grid-pulse {
+    animation: login-grid-pulse 8s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-login-aurora,
+    .animate-login-grid-pulse {
+      animation: none;
+    }
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply text-foreground;
+    background: var(--josvn-login-gradient);
+  }
+}

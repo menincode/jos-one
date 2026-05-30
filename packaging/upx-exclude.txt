@@ -1,0 +1,7 @@
+# Binaries to exclude if using PyInstaller internal UPX (we use Makefile package-upx instead).
+# WebView2 and similar runtime DLLs should not be UPX-compressed.
+webview*
+WebView2*
+python*.dll
+VCRUNTIME*.dll
+MSVCP*.dll

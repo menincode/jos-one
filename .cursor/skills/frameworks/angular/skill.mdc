@@ -1,0 +1,516 @@
+---
+description: Best practices and patterns for Angular
+globs: ['**/*.component.ts', '**/*.service.ts', '**/*.module.ts', '**/*.pipe.ts', '**/*.directive.ts', '**/app.config.ts', '**/app.routes.ts']
+---
+
+# Angular
+
+## Description
+
+Angular is a platform and framework for building single-page client applications using HTML, TypeScript, and CSS. Uses dependency injection, component-based architecture, and reactive programming.
+
+## When to Use
+
+- Large-scale enterprise applications
+- Applications requiring strong typing
+- Complex state management needs
+- Applications with many developers
+- Applications requiring dependency injection
+
+---
+
+## Core Patterns
+
+### Component Structure
+
+```typescript
+// user-profile.component.ts
+import { Component, OnInit, OnDestroy } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { UserService } from '../services/user.service';
+import { User } from '../models/user.model';
+import { Subject, takeUntil } from 'rxjs';
+
+@Component({
+  selector: 'app-user-profile',
+  standalone: true,
+  imports: [CommonModule],
+  templateUrl: './user-profile.component.html',
+  styleUrls: ['./user-profile.component.css']
+})
+export class UserProfileComponent implements OnInit, OnDestroy {
+  user: User | null = null;
+  loading = false;
+  error: string | null = null;
+  
+  private destroy$ = new Subject<void>();
+  
+  constructor(private userService: UserService) {}
+  
+  ngOnInit(): void {
+    this.loadUser();
+  }
+  
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+  
+  loadUser(): void {
+    this.loading = true;
+    this.error = null;
+    
+    this.userService.getUser(1)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (user) => {
+          this.user = user;
+          this.loading = false;
+        },
+        error: (err) => {
+          this.error = 'Failed to load user';
+          this.loading = false;
+        }
+      });
+  }
+}
+```
+
+### Service Pattern
+
+```typescript
+// user.service.ts
+import { Injectable } from '@angular/core';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import { User } from '../models/user.model';
+
+@Injectable({
+  providedIn: 'root' // Singleton service
+})
+export class UserService {
+  private apiUrl = 'http://localhost:3001/api/users';
+  
+  constructor(private http: HttpClient) {}
+  
+  getUsers(): Observable<User[]> {
+    return this.http.get<User[]>(this.apiUrl);
+  }
+  
+  getUser(id: number): Observable<User> {
+    return this.http.get<User>(`${this.apiUrl}/${id}`);
+  }
+  
+  createUser(user: Partial<User>): Observable<User> {
+    return this.http.post<User>(this.apiUrl, user);
+  }
+  
+  updateUser(id: number, user: Partial<User>): Observable<User> {
+    return this.http.put<User>(`${this.apiUrl}/${id}`, user);
+  }
+  
+  deleteUser(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.apiUrl}/${id}`);
+  }
+}
+```
+
+### Standalone Components (Angular 14+)
+
+```typescript
+// app.component.ts
+import { Component } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { RouterOutlet } from '@angular/router';
+import { HttpClientModule } from '@angular/common/http';
+
+@Component({
+  selector: 'app-root',
+  standalone: true,
+  imports: [CommonModule, RouterOutlet, HttpClientModule],
+  template: `
+    <nav>
+      <a routerLink="/users">Users</a>
+      <a routerLink="/products">Products</a>
+    </nav>
+    <router-outlet></router-outlet>
+  `
+})
+export class AppComponent {
+  title = 'My App';
+}
+
+// main.ts
+import { bootstrapApplication } from '@angular/platform-browser';
+import { provideRouter } from '@angular/router';
+import { provideHttpClient } from '@angular/common/http';
+import { AppComponent } from './app/app.component';
+import { routes } from './app/app.routes';
+
+bootstrapApplication(AppComponent, {
+  providers: [
+    provideRouter(routes),
+    provideHttpClient()
+  ]
+});
+```
+
+### Routing
+
+```typescript
+// app.routes.ts
+import { Routes } from '@angular/router';
+import { UserListComponent } from './users/user-list.component';
+import { UserDetailComponent } from './users/user-detail.component';
+import { authGuard } from './guards/auth.guard';
+
+export const routes: Routes = [
+  {
+    path: 'users',
+    component: UserListComponent,
+    canActivate: [authGuard]
+  },
+  {
+    path: 'users/:id',
+    component: UserDetailComponent,
+    canActivate: [authGuard]
+  },
+  {
+    path: '',
+    redirectTo: '/users',
+    pathMatch: 'full'
+  },
+  {
+    path: '**',
+    component: NotFoundComponent
+  }
+];
+```
+
+### Reactive Forms
+
+```typescript
+// user-form.component.ts
+import { Component, OnInit } from '@angular/core';
+import { FormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
+import { UserService } from '../services/user.service';
+
+@Component({
+  selector: 'app-user-form',
+  standalone: true,
+  imports: [ReactiveFormsModule],
+  template: `
+    <form [formGroup]="userForm" (ngSubmit)="onSubmit()">
+      <input formControlName="email" type="email" placeholder="Email">
+      <div *ngIf="userForm.get('email')?.hasError('required')">
+        Email is required
+      </div>
+      
+      <input formControlName="name" placeholder="Name">
+      <div *ngIf="userForm.get('name')?.hasError('minlength')">
+        Name must be at least 2 characters
+      </div>
+      
+      <button type="submit" [disabled]="userForm.invalid">Submit</button>
+    </form>
+  `
+})
+export class UserFormComponent implements OnInit {
+  userForm: FormGroup;
+  
+  constructor(
+    private fb: FormBuilder,
+    private userService: UserService
+  ) {
+    this.userForm = this.fb.group({
+      email: ['', [Validators.required, Validators.email]],
+      name: ['', [Validators.required, Validators.minLength(2)]]
+    });
+  }
+  
+  ngOnInit(): void {}
+  
+  onSubmit(): void {
+    if (this.userForm.valid) {
+      this.userService.createUser(this.userForm.value)
+        .subscribe({
+          next: (user) => console.log('User created', user),
+          error: (err) => console.error('Error', err)
+        });
+    }
+  }
+}
+```
+
+### Guards
+
+```typescript
+// guards/auth.guard.ts
+import { inject } from '@angular/core';
+import { Router, CanActivateFn } from '@angular/router';
+import { AuthService } from '../services/auth.service';
+
+export const authGuard: CanActivateFn = (route, state) => {
+  const authService = inject(AuthService);
+  const router = inject(Router);
+  
+  if (authService.isAuthenticated()) {
+    return true;
+  }
+  
+  router.navigate(['/login']);
+  return false;
+};
+```
+
+### Interceptors
+
+```typescript
+// interceptors/auth.interceptor.ts
+import { HttpInterceptorFn } from '@angular/common/http';
+import { inject } from '@angular/core';
+import { AuthService } from '../services/auth.service';
+
+export const authInterceptor: HttpInterceptorFn = (req, next) => {
+  const authService = inject(AuthService);
+  const token = authService.getToken();
+  
+  if (token) {
+    req = req.clone({
+      setHeaders: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+  }
+  
+  return next(req);
+};
+
+// app.config.ts
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { authInterceptor } from './interceptors/auth.interceptor';
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideHttpClient(
+      withInterceptors([authInterceptor])
+    )
+  ]
+};
+```
+
+### Signals (Angular 16+)
+
+```typescript
+// user-list.component.ts
+import { Component, signal, computed, effect } from '@angular/core';
+import { UserService } from '../services/user.service';
+import { User } from '../models/user.model';
+
+@Component({
+  selector: 'app-user-list',
+  standalone: true,
+  template: `
+    <div *ngFor="let user of users()">
+      {{ user.name }}
+    </div>
+    <p>Total: {{ userCount() }}</p>
+  `
+})
+export class UserListComponent {
+  users = signal<User[]>([]);
+  loading = signal(false);
+  
+  // Computed signal
+  userCount = computed(() => this.users().length);
+  
+  constructor(private userService: UserService) {
+    // Effect for side effects
+    effect(() => {
+      console.log('User count changed:', this.userCount());
+    });
+  }
+  
+  ngOnInit(): void {
+    this.loadUsers();
+  }
+  
+  loadUsers(): void {
+    this.loading.set(true);
+    this.userService.getUsers().subscribe({
+      next: (users) => {
+        this.users.set(users);
+        this.loading.set(false);
+      },
+      error: () => this.loading.set(false)
+    });
+  }
+}
+```
+
+### Dependency Injection
+
+```typescript
+// Custom injection token
+import { InjectionToken } from '@angular/core';
+
+export const API_URL = new InjectionToken<string>('API_URL');
+
+// app.config.ts
+import { provide } from '@angular/core';
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provide(API_URL, { useValue: 'http://localhost:3001/api' })
+  ]
+};
+
+// Usage in service
+import { inject, Inject } from '@angular/core';
+
+@Injectable()
+export class UserService {
+  private apiUrl = inject(API_URL);
+  // or
+  constructor(@Inject(API_URL) private apiUrl: string) {}
+}
+```
+
+## Best Practices
+
+1. **Component Design**
+   - Keep components focused and small
+   - Use OnPush change detection when possible
+   - Unsubscribe from observables (use takeUntil)
+   - Use signals for reactive state (Angular 16+)
+   - Separate presentation and container components
+
+2. **Services**
+   - Use `providedIn: 'root'` for singleton services
+   - Keep services focused on single responsibility
+   - Use dependency injection properly
+   - Handle errors in services
+
+3. **TypeScript**
+   - Use strict mode
+   - Define interfaces for all data models
+   - Avoid `any` type
+   - Use type guards for type safety
+
+4. **Performance**
+   - Use OnPush change detection strategy
+   - Use trackBy in *ngFor
+   - Lazy load modules
+   - Use signals for fine-grained reactivity
+   - Implement virtual scrolling for large lists
+
+5. **Forms**
+   - Use reactive forms for complex forms
+   - Validate on both client and server
+   - Provide clear error messages
+   - Use custom validators when needed
+
+6. **Routing**
+   - Use route guards for protection
+   - Implement lazy loading
+   - Use route resolvers for data prefetching
+   - Handle route parameters properly
+
+7. **State Management**
+   - Use services for simple state
+   - Consider NgRx for complex state
+   - Use signals for local component state
+   - Avoid prop drilling
+
+## Common Pitfalls
+
+- **Memory leaks**: Always unsubscribe from observables
+- **Change detection issues**: Use OnPush and signals
+- **No error handling**: Handle errors in observables
+- **Tight coupling**: Use dependency injection
+- **No lazy loading**: Lazy load feature modules
+- **Missing type safety**: Use TypeScript properly
+- **No trackBy in *ngFor**: Causes performance issues
+- **Blocking operations**: Use async pipes
+
+## Advanced Patterns
+
+### Custom Pipes
+
+```typescript
+// pipes/currency.pipe.ts
+import { Pipe, PipeTransform } from '@angular/core';
+
+@Pipe({
+  name: 'currency',
+  standalone: true
+})
+export class CurrencyPipe implements PipeTransform {
+  transform(value: number, currency: string = 'USD'): string {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency
+    }).format(value);
+  }
+}
+```
+
+### Custom Directives
+
+```typescript
+// directives/highlight.directive.ts
+import { Directive, ElementRef, Input, OnInit } from '@angular/core';
+
+@Directive({
+  selector: '[appHighlight]',
+  standalone: true
+})
+export class HighlightDirective implements OnInit {
+  @Input() appHighlight = 'yellow';
+  
+  constructor(private el: ElementRef) {}
+  
+  ngOnInit(): void {
+    this.el.nativeElement.style.backgroundColor = this.appHighlight;
+  }
+}
+```
+
+### Resolvers
+
+```typescript
+// resolvers/user.resolver.ts
+import { ResolveFn } from '@angular/router';
+import { inject } from '@angular/core';
+import { UserService } from '../services/user.service';
+import { User } from '../models/user.model';
+
+export const userResolver: ResolveFn<User> = (route, state) => {
+  const userService = inject(UserService);
+  const id = route.paramMap.get('id')!;
+  return userService.getUser(+id);
+};
+
+// Usage in routes
+{
+  path: 'users/:id',
+  component: UserDetailComponent,
+  resolve: { user: userResolver }
+}
+```
+
+### Lazy Loading
+
+```typescript
+// app.routes.ts
+export const routes: Routes = [
+  {
+    path: 'users',
+    loadChildren: () => import('./users/users.routes').then(m => m.routes)
+  },
+  {
+    path: 'products',
+    loadComponent: () => import('./products/products.component').then(m => m.ProductsComponent)
+  }
+];
+```

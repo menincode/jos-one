@@ -5,8 +5,8 @@ from __future__ import annotations
 from python.bridge.js_api_base import JsApiBase
 from python.services import get_app_info_dict, open_path_dialog_stub
 from python.services.auth_login import sign_in_with_username
-from python.services.video_duration import enrich_videos_with_duration
-from python.services.video_folders import (
+from python.services.video_merge.io import (
+    enrich_videos_with_duration,
     list_videos_in_folder,
     open_folder_dialog,
     open_folder_in_explorer,
@@ -14,15 +14,21 @@ from python.services.video_folders import (
     open_input_folder_dialog,
     open_media_file,
     open_output_folder_dialog,
+    validate_merge_folders,
 )
 from python.services.plugin_downloader import get_ffmpeg_status
+from python.services.remove_watermark.listing import list_watermark_video_rows
+from python.services.remove_watermark.runtime import get_remove_watermark_service
+from python.services.remove_watermark.service import RemoveLogoInput
 from python.services.settings_service import (
     get_login_settings,
+    get_remove_watermark_settings,
     get_video_merge_settings,
     save_login_settings,
+    save_remove_watermark_settings,
     save_video_merge_settings,
 )
-from python.services.video_merge_job import (
+from python.services.video_merge.job import (
     get_video_merge_job_status,
     request_cancel_video_merge,
     start_video_merge_job,
@@ -69,6 +75,13 @@ class JsApi(JsApiBase):
             raise ValueError("open_output_folder_dialog: directory must be a string")
         return self._safe_return(open_output_folder_dialog(self._bridge, directory))
 
+    def validate_merge_folders(
+        self, input_folder: str, output_folder: str
+    ) -> dict[str, str | bool]:
+        if not isinstance(input_folder, str) or not isinstance(output_folder, str):
+            raise ValueError("validate_merge_folders: folders must be strings")
+        return self._safe_return(validate_merge_folders(input_folder, output_folder))
+
     def list_videos_in_folder(self, folder: str) -> dict[str, str | bool | list]:
         if not isinstance(folder, str):
             raise ValueError("list_videos_in_folder: folder must be a string")
@@ -106,7 +119,11 @@ class JsApi(JsApiBase):
     def login(self, username: str, password: str) -> dict[str, str | int | bool | None]:
         if not isinstance(username, str) or not isinstance(password, str):
             raise ValueError("login: username and password must be strings")
-        user = sign_in_with_username(username, password)
+        try:
+            user = sign_in_with_username(username, password)
+        except ValueError as exc:
+            # Expected auth failures are already logged at WARNING in auth_login.
+            return self._safe_return({"ok": False, "message": str(exc)})
         return self._safe_return(user)
 
     def get_ffmpeg_status(self) -> dict[str, str | bool]:
@@ -177,3 +194,96 @@ class JsApi(JsApiBase):
 
     def cancel_video_merge_job(self) -> dict[str, str | bool]:
         return self._safe_return(request_cancel_video_merge())
+
+    def get_remove_watermark_settings(self) -> dict[str, str | int]:
+        return self._safe_return(get_remove_watermark_settings())
+
+    def save_remove_watermark_settings(
+        self,
+        input_folder: str,
+        output_folder: str,
+        thread_count: int,
+    ) -> dict[str, str | int]:
+        if not isinstance(input_folder, str) or not isinstance(output_folder, str):
+            raise ValueError(
+                "save_remove_watermark_settings: input_folder and output_folder must be strings"
+            )
+        if not isinstance(thread_count, int):
+            raise ValueError("save_remove_watermark_settings: thread_count must be an integer")
+        return self._safe_return(
+            save_remove_watermark_settings(input_folder, output_folder, thread_count)
+        )
+
+    def list_watermark_videos_in_folder(
+        self,
+        input_folder: str,
+        output_folder: str | None = None,
+    ) -> list[dict[str, str | int]]:
+        if not isinstance(input_folder, str):
+            raise ValueError("list_watermark_videos_in_folder: input_folder must be a string")
+        if output_folder is not None and not isinstance(output_folder, str):
+            raise ValueError("list_watermark_videos_in_folder: output_folder must be a string")
+        return self._safe_return(
+            list_watermark_video_rows(input_folder, output_folder)
+        )
+
+    def remove_watermark_batch(
+        self,
+        videos: list[dict],
+        thread_count: int,
+    ) -> list[dict[str, str | int]]:
+        if not isinstance(videos, list):
+            raise ValueError("remove_watermark_batch: videos must be a list")
+        if not isinstance(thread_count, int):
+            raise ValueError("remove_watermark_batch: thread_count must be an integer")
+        safe_rows: list[RemoveLogoInput] = []
+        for row in videos:
+            if not isinstance(row, dict):
+                continue
+            file_name = str(row.get("file_name") or "").strip()
+            input_path = str(row.get("input_path") or "").strip()
+            output_path = str(row.get("output_path") or "").strip()
+            if not input_path or not output_path:
+                continue
+            bbox_raw = row.get("bbox_pixels")
+            bbox: tuple[int, int, int, int] | None = None
+            if isinstance(bbox_raw, (list, tuple)) and len(bbox_raw) == 4:
+                try:
+                    bbox = (
+                        int(bbox_raw[0]),
+                        int(bbox_raw[1]),
+                        int(bbox_raw[2]),
+                        int(bbox_raw[3]),
+                    )
+                except (TypeError, ValueError):
+                    bbox = None
+            safe_rows.append(
+                RemoveLogoInput(
+                    file_name=file_name,
+                    input_path=input_path,
+                    output_path=output_path,
+                    bbox_pixels=bbox,
+                )
+            )
+        service = get_remove_watermark_service()
+        results = service.process_batch(rows=safe_rows, thread_count=thread_count)
+        return self._safe_return(
+            [
+                {
+                    "file_name": item.file_name,
+                    "input_path": item.input_path,
+                    "output_path": item.output_path,
+                    "status": item.status,
+                    "progress_pct": item.progress_pct,
+                }
+                for item in results
+            ]
+        )
+
+    def get_remove_watermark_progress(self) -> list[dict[str, str | int]]:
+        service = get_remove_watermark_service()
+        return self._safe_return(service.get_progress_snapshot())
+
+    def cancel_remove_watermark_batch(self) -> dict[str, bool]:
+        get_remove_watermark_service().request_cancel()
+        return self._safe_return({"ok": True})

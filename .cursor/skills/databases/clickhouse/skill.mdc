@@ -1,0 +1,219 @@
+---
+description: Best practices and patterns for ClickHouse
+---
+
+# ClickHouse
+
+## Description
+
+ClickHouse is a column-oriented database management system for online analytical processing (OLAP). Optimized for read-heavy analytical workloads with high compression and fast aggregations.
+
+## When to Use
+
+- Analytical queries and data warehousing
+- Time-series data analysis
+- Real-time analytics dashboards
+- Large-scale data aggregation
+- Log analysis and monitoring
+
+---
+
+## Core Patterns
+
+### Schema Design
+
+```sql
+-- Primary key design: maximize query performance, minimize storage
+CREATE TABLE events (
+    timestamp DateTime,
+    user_id UInt64,
+    event_type String,
+    properties String
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (user_id, timestamp, event_type)
+SETTINGS index_granularity = 8192;
+
+-- Optimal data types for compression
+CREATE TABLE metrics (
+    timestamp DateTime,
+    metric_name LowCardinality(String),  -- Use for low cardinality strings
+    value Float64,
+    tags Map(String, String)  -- Use Map for key-value pairs
+) ENGINE = MergeTree()
+ORDER BY (metric_name, timestamp);
+```
+
+### Query Optimization
+
+```sql
+-- Filter first, then process (core principle)
+SELECT 
+    user_id,
+    count() as event_count,
+    sum(value) as total_value
+FROM events
+WHERE timestamp >= now() - INTERVAL 1 DAY  -- Filter early
+    AND event_type = 'purchase'
+GROUP BY user_id
+ORDER BY total_value DESC
+LIMIT 100;
+
+-- Use materialized views for pre-aggregation
+CREATE MATERIALIZED VIEW daily_stats_mv
+ENGINE = SummingMergeTree()
+ORDER BY (date, user_id)
+AS SELECT
+    toDate(timestamp) as date,
+    user_id,
+    count() as events,
+    sum(value) as total_value
+FROM events
+GROUP BY date, user_id;
+```
+
+### Data Ingestion
+
+```sql
+-- Batch inserts (optimal for synchronous)
+INSERT INTO events VALUES
+    (now(), 123, 'click', '{"page": "home"}'),
+    (now(), 124, 'view', '{"page": "product"}'),
+    (now(), 125, 'purchase', '{"amount": 99.99}');
+
+-- Asynchronous inserts for high-throughput
+INSERT INTO events ASYNC VALUES (...);
+
+-- Bulk insert from file
+INSERT INTO events FROM INFILE 'data.csv' FORMAT CSV;
+```
+
+### JOIN Optimization
+
+```sql
+-- Prefer denormalization for frequently joined tables
+-- If JOIN is necessary, use smaller table on right side
+SELECT 
+    e.*,
+    u.name as user_name
+FROM events e
+LEFT JOIN (
+    SELECT user_id, name 
+    FROM users 
+    WHERE active = 1
+) u ON e.user_id = u.user_id;
+
+-- Use JOIN with automatic query optimization (ClickHouse 24.12+)
+SET join_algorithm = 'auto';
+```
+
+### Indexing Strategies
+
+```sql
+-- Data skipping indices for filtered columns
+ALTER TABLE events ADD INDEX idx_event_type event_type TYPE bloom_filter GRANULARITY 1;
+
+-- MinMax index for numeric ranges
+ALTER TABLE events ADD INDEX idx_value value TYPE minmax GRANULARITY 1;
+
+-- Token index for text search
+ALTER TABLE events ADD INDEX idx_properties properties TYPE tokenbf_v1(256, 2, 0) GRANULARITY 1;
+```
+
+## Best Practices
+
+1. **Schema Design**
+   - Choose primary key columns that maximize query performance
+   - Use optimal data types (LowCardinality for strings with <10k unique values)
+   - Design partitioning by time or other high-cardinality columns
+   - Keep ORDER BY columns aligned with query patterns
+
+2. **Query Optimization**
+   - Filter first, then process (core principle)
+   - Avoid SELECT * - only read needed columns
+   - Use materialized views for common aggregations
+   - Minimize JOINs - prefer denormalization when tables change infrequently
+   - Use EXPLAIN to analyze query plans
+
+3. **Data Ingestion**
+   - Batch data client-side for optimal synchronous insert performance
+   - Pre-sort data by primary key before transmission
+   - Compress data before transmission
+   - Use asynchronous inserts for large-scale ingestion when batching isn't feasible
+
+4. **Performance**
+   - Use EXPLAIN to understand query execution
+   - Monitor query performance with system.query_log
+   - Use appropriate table engines (MergeTree for most cases)
+   - Set index_granularity based on data size
+
+5. **Operations to Avoid**
+   - Avoid mutations (UPDATE/DELETE) - design schemas to eliminate them
+   - Avoid OPTIMIZE FINAL in production - use OPTIMIZE PARTITION instead
+   - Use JSON judiciously - prefer structured columns when possible
+   - Don't over-partition - too many partitions hurt performance
+
+## Common Pitfalls
+
+- **SELECT * queries**: Read only needed columns from columnar storage
+- **Excessive JOINs**: Denormalize frequently joined data
+- **Over-partitioning**: Too many partitions (>1000) degrades performance
+- **Missing indexes**: Add data skipping indices for filtered columns
+- **Large mutations**: Design schemas to avoid UPDATE/DELETE operations
+- **Inefficient data types**: Use LowCardinality for low-cardinality strings
+
+## Advanced Patterns
+
+### Time-Series Data
+
+```sql
+-- Time-series table with TTL
+CREATE TABLE sensor_data (
+    timestamp DateTime,
+    sensor_id UInt32,
+    temperature Float32,
+    humidity Float32
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (sensor_id, timestamp)
+TTL timestamp + INTERVAL 90 DAY;  -- Auto-delete old data
+```
+
+### AggregatingMergeTree
+
+```sql
+-- Pre-aggregated data
+CREATE TABLE daily_aggregates (
+    date Date,
+    user_id UInt64,
+    event_count AggregateFunction(count),
+    total_value AggregateFunction(sum, Float64)
+) ENGINE = AggregatingMergeTree()
+ORDER BY (date, user_id);
+
+-- Insert aggregated data
+INSERT INTO daily_aggregates VALUES
+    (today(), 123, countState(), sumState(99.99));
+
+-- Query aggregated data
+SELECT 
+    date,
+    user_id,
+    countMerge(event_count) as events,
+    sumMerge(total_value) as total
+FROM daily_aggregates
+GROUP BY date, user_id;
+```
+
+### Replicated Tables
+
+```sql
+-- ReplicatedMergeTree for high availability
+CREATE TABLE events_replicated (
+    timestamp DateTime,
+    user_id UInt64,
+    event_type String
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/events', '{replica}')
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (user_id, timestamp);
+```

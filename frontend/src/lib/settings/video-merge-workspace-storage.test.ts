@@ -40,9 +40,18 @@ describe("video-merge-workspace-storage", () => {
     expect(loadVideoMergeWorkspace("default").mix_rows).toHaveLength(1);
   });
 
+  it("persists selected mix row id", () => {
+    persistMixRowsToWorkspace([{ id: "r1", leading_paths: ["/a.mp4"] }], undefined, "r1");
+    expect(loadVideoMergeWorkspace().selected_mix_row_id).toBe("r1");
+  });
+
   it("scopes storage by user id", () => {
     saveVideoMergeWorkspace(
-      { mix_rows: [{ id: "u2", leading_paths: [] }], videos_by_folder: {} },
+      {
+        mix_rows: [{ id: "u2", leading_paths: [] }],
+        videos_by_folder: {},
+        selected_mix_row_id: null,
+      },
       "user-2",
     );
     expect(loadVideoMergeWorkspace("user-2").mix_rows[0]?.id).toBe("u2");

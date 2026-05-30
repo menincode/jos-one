@@ -1,0 +1,20 @@
+{
+  "auto-format": {
+    "event": "PostToolUse",
+    "matcher": "Write|Edit",
+    "script": "auto-format.cjs",
+    "description": "Auto-formats files after Write/Edit using ruff (Python) or eslint (JS/TS)"
+  },
+  "block-dangerous-commands": {
+    "event": "PreToolUse",
+    "matcher": "Bash",
+    "script": "block-dangerous-commands.cjs",
+    "description": "Blocks rm -rf /, force push to main, hard reset, DROP TABLE, etc."
+  },
+  "notify": {
+    "event": "Notification",
+    "matcher": "",
+    "script": "notify.cjs",
+    "description": "Cross-platform desktop notifications (macOS, Linux, Windows)"
+  }
+}

@@ -1,0 +1,423 @@
+---
+description: Best practices and patterns for MinIO
+---
+
+# MinIO
+
+## Description
+
+MinIO is a high-performance, S3-compatible object storage server. Designed for cloud-native applications, AI/ML workloads, and data lake architectures.
+
+## When to Use
+
+- Object storage for applications
+- Data lake and analytics storage
+- Backup and archival
+- Media file storage
+- AI/ML model storage
+- Static asset hosting
+
+---
+
+## Core Patterns
+
+### Client Configuration
+
+```python
+from minio import Minio
+from minio.error import S3Error
+
+# Initialize client
+client = Minio(
+    "localhost:9000",
+    access_key="minioadmin",
+    secret_key="minioadmin",
+    secure=False  # Use True with TLS
+)
+
+# With TLS
+client = Minio(
+    "minio.example.com:9000",
+    access_key="access_key",
+    secret_key="secret_key",
+    secure=True,
+    region="us-east-1"
+)
+```
+
+### Bucket Operations
+
+```python
+# Create bucket
+try:
+    client.make_bucket("my-bucket", location="us-east-1")
+except S3Error as e:
+    if e.code == "BucketAlreadyOwnedByYou":
+        pass  # Bucket already exists
+
+# Check if bucket exists
+if client.bucket_exists("my-bucket"):
+    print("Bucket exists")
+
+# List buckets
+buckets = client.list_buckets()
+for bucket in buckets:
+    print(f"Bucket: {bucket.name}, Created: {bucket.creation_date}")
+
+# Remove bucket (must be empty)
+client.remove_bucket("my-bucket")
+```
+
+### Object Operations
+
+```python
+# Upload file
+client.fput_object(
+    "my-bucket",
+    "path/to/file.jpg",
+    "/local/path/file.jpg",
+    content_type="image/jpeg",
+    metadata={"x-amz-meta-custom": "value"}
+)
+
+# Upload from bytes/string
+from io import BytesIO
+
+data = BytesIO(b"Hello, MinIO!")
+client.put_object(
+    "my-bucket",
+    "path/to/object.txt",
+    data,
+    length=len(data.getvalue()),
+    content_type="text/plain"
+)
+
+# Download object
+client.fget_object(
+    "my-bucket",
+    "path/to/file.jpg",
+    "/local/download/file.jpg"
+)
+
+# Get object as bytes
+response = client.get_object("my-bucket", "path/to/object.txt")
+data = response.read()
+response.close()
+response.release_conn()
+
+# Delete object
+client.remove_object("my-bucket", "path/to/file.jpg")
+
+# Delete multiple objects
+from minio.deleteobjects import DeleteObject
+
+objects_to_delete = [
+    DeleteObject("path/to/file1.jpg"),
+    DeleteObject("path/to/file2.jpg"),
+]
+errors = client.remove_objects("my-bucket", objects_to_delete)
+for error in errors:
+    print(f"Error deleting {error}")
+```
+
+### Presigned URLs
+
+```python
+from datetime import timedelta
+
+# Generate presigned URL for upload
+url = client.presigned_put_object(
+    "my-bucket",
+    "path/to/upload.jpg",
+    expires=timedelta(hours=1)
+)
+
+# Generate presigned URL for download
+url = client.presigned_get_object(
+    "my-bucket",
+    "path/to/file.jpg",
+    expires=timedelta(hours=1)
+)
+
+# Generate presigned POST URL (for form uploads)
+from minio.commonconfig import Tags
+from minio.post_policy import PostPolicy
+
+policy = PostPolicy()
+policy.set_bucket_name("my-bucket")
+policy.set_key_startswith("uploads/")
+policy.set_expires(datetime.utcnow() + timedelta(hours=1))
+
+form_data = client.presigned_post_policy(policy)
+```
+
+### Object Versioning
+
+```python
+# Enable versioning on bucket
+from minio.versioningconfig import VersioningConfig, ENABLED
+
+client.set_bucket_versioning(
+    "my-bucket",
+    VersioningConfig(ENABLED)
+)
+
+# Upload object (creates new version)
+client.put_object("my-bucket", "file.txt", data, len(data))
+
+# List object versions
+from minio.commonconfig import Tags
+
+versions = client.list_objects(
+    "my-bucket",
+    prefix="file.txt",
+    include_version=True
+)
+for obj in versions:
+    print(f"Version: {obj.version_id}, IsLatest: {obj.is_latest}")
+
+# Get specific version
+response = client.get_object(
+    "my-bucket",
+    "file.txt",
+    version_id="version-id-here"
+)
+```
+
+### Object Locking (WORM)
+
+```python
+# Enable object locking on bucket
+from minio.retention import Retention
+from datetime import datetime, timedelta
+
+# Set retention mode and retention until date
+retention = Retention(
+    mode=GOVERNANCE,  # or COMPLIANCE
+    retain_until_date=datetime.utcnow() + timedelta(days=90)
+)
+
+client.set_object_retention(
+    "my-bucket",
+    "file.txt",
+    retention
+)
+
+# Get object retention
+retention = client.get_object_retention("my-bucket", "file.txt")
+```
+
+### Lifecycle Management
+
+```python
+# Set lifecycle rules (via MinIO console or mc CLI)
+# Example: Delete objects after 30 days
+# {
+#   "Rules": [{
+#     "ID": "DeleteOldFiles",
+#     "Status": "Enabled",
+#     "Filter": {"Prefix": "temp/"},
+#     "Expiration": {"Days": 30}
+#   }]
+# }
+```
+
+### Tagging and Metadata
+
+```python
+from minio.commonconfig import Tags
+
+# Set object tags
+tags = Tags.new_object_tags()
+tags["Environment"] = "production"
+tags["Project"] = "webapp"
+client.set_object_tags("my-bucket", "file.jpg", tags)
+
+# Get object tags
+tags = client.get_object_tags("my-bucket", "file.jpg")
+print(tags)
+
+# Set object metadata
+client.put_object(
+    "my-bucket",
+    "file.jpg",
+    data,
+    len(data),
+    metadata={
+        "x-amz-meta-author": "John Doe",
+        "x-amz-meta-category": "photos"
+    }
+)
+
+# Get object metadata
+stat = client.stat_object("my-bucket", "file.jpg")
+print(stat.metadata)
+```
+
+### Multipart Upload
+
+```python
+# For large files (>5MB recommended)
+from minio.commonconfig import COMPOSE
+
+# Start multipart upload
+upload_id = client._create_multipart_upload(
+    "my-bucket",
+    "large-file.zip"
+)
+
+# Upload parts
+parts = []
+part_number = 1
+for chunk in read_file_in_chunks("large-file.zip", chunk_size=5*1024*1024):
+    etag = client._upload_part(
+        "my-bucket",
+        "large-file.zip",
+        upload_id,
+        part_number,
+        chunk
+    )
+    parts.append((part_number, etag))
+    part_number += 1
+
+# Complete multipart upload
+client._complete_multipart_upload(
+    "my-bucket",
+    "large-file.zip",
+    upload_id,
+    parts
+)
+```
+
+## Best Practices
+
+1. **Security**
+   - Use IAM policies with least privilege access
+   - Enable TLS/SSL for encryption in transit
+   - Use server-side encryption (SSE) for data at rest
+   - Rotate access keys regularly
+   - Enable object versioning and locking for critical data
+
+2. **Bucket Design**
+   - Use descriptive bucket names
+   - Organize objects with prefixes (folders)
+   - Set appropriate bucket policies
+   - Enable versioning for important buckets
+   - Use lifecycle policies for automatic cleanup
+
+3. **Object Naming**
+   - Use consistent naming conventions
+   - Include timestamps or version numbers
+   - Avoid special characters
+   - Use prefixes for organization
+   - Keep names URL-safe
+
+4. **Performance**
+   - Use multipart upload for large files (>5MB)
+   - Enable compression for compressible data
+   - Use presigned URLs for direct client uploads
+   - Batch operations when possible
+   - Monitor and optimize access patterns
+
+5. **Replication**
+   - Set up site replication for multi-site deployments
+   - Use bucket-level replication for specific buckets
+   - Configure batch replication for granular control
+   - Monitor replication status and lag
+
+6. **Operations**
+   - Monitor storage usage and growth
+   - Set up alerts for errors and capacity
+   - Regular backup of critical data
+   - Test disaster recovery procedures
+   - Use MinIO Console for management
+
+## Common Pitfalls
+
+- **No encryption**: Enable TLS and SSE
+- **Overly permissive policies**: Use least privilege
+- **No versioning**: Enable for important data
+- **Large single uploads**: Use multipart for >5MB
+- **No lifecycle management**: Old data accumulates
+- **Missing tags**: Hard to manage and organize
+- **No monitoring**: Can't detect issues
+- **No replication**: Single point of failure
+
+## Advanced Patterns
+
+### Event Notifications
+
+```python
+# Configure bucket notifications (via MinIO console or mc CLI)
+# Notify on object creation, deletion, etc.
+# Can send to:
+# - Webhooks
+# - Kafka
+# - RabbitMQ
+# - Redis
+# - PostgreSQL
+# - Elasticsearch
+```
+
+### Select API (SQL on Objects)
+
+```python
+# Query JSON/CSV objects with SQL
+from minio.select import SelectRequest
+
+request = SelectRequest(
+    "SELECT * FROM S3Object[*] WHERE age > 25",
+    expression_type="SQL",
+    input_serialization={
+        "JSON": {"Type": "DOCUMENT"}
+    },
+    output_serialization={
+        "JSON": {"RecordDelimiter": "\n"}
+    }
+)
+
+response = client.select_object_content(
+    "my-bucket",
+    "data.json",
+    request
+)
+
+for event in response.stream():
+    if event.event_type == "Records":
+        print(event.data.decode())
+```
+
+### Batch Operations
+
+```python
+# Copy multiple objects
+from minio.commonconfig import CopySource
+
+sources = [
+    CopySource("source-bucket", "file1.jpg"),
+    CopySource("source-bucket", "file2.jpg"),
+]
+
+client.compose_object(
+    "dest-bucket",
+    "combined.jpg",
+    sources
+)
+```
+
+### Access Control
+
+```python
+# Set bucket policy (JSON policy document)
+policy = {
+    "Version": "2012-10-17",
+    "Statement": [{
+        "Effect": "Allow",
+        "Principal": {"AWS": ["*"]},
+        "Action": ["s3:GetObject"],
+        "Resource": ["arn:aws:s3:::my-bucket/*"]
+    }]
+}
+
+client.set_bucket_policy("my-bucket", json.dumps(policy))
+```

@@ -1,0 +1,293 @@
+---
+description: Best practices and patterns for Apache Kafka
+---
+
+# Apache Kafka
+
+## Description
+
+Apache Kafka is a distributed event streaming platform for building real-time data pipelines and streaming applications. Designed for high-throughput, fault-tolerant event streaming.
+
+## When to Use
+
+- Event-driven microservices architecture
+- Real-time data pipelines
+- Stream processing applications
+- Log aggregation and monitoring
+- IoT data ingestion
+- Change data capture (CDC)
+
+---
+
+## Core Patterns
+
+### Producer Patterns
+
+```python
+from kafka import KafkaProducer
+import json
+
+# Producer configuration
+producer = KafkaProducer(
+    bootstrap_servers=['localhost:9092'],
+    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+    key_serializer=lambda k: k.encode('utf-8') if k else None,
+    acks='all',  # Wait for all replicas
+    retries=3,
+    max_in_flight_requests_per_connection=1,  # Ensure ordering
+    enable_idempotence=True,  # Prevent duplicates
+    compression_type='snappy'  # Compress messages
+)
+
+# Send message with key (for partitioning)
+producer.send(
+    'user-events',
+    key='user-123',
+    value={
+        'event_type': 'login',
+        'user_id': 123,
+        'timestamp': '2024-01-15T10:00:00Z'
+    }
+)
+
+# Send with callback
+def on_send_success(record_metadata):
+    print(f"Topic: {record_metadata.topic}")
+    print(f"Partition: {record_metadata.partition}")
+    print(f"Offset: {record_metadata.offset}")
+
+producer.send('user-events', value=data).add_callback(on_send_success)
+producer.flush()  # Ensure all messages sent
+```
+
+### Consumer Patterns
+
+```python
+from kafka import KafkaConsumer
+import json
+
+# Consumer configuration
+consumer = KafkaConsumer(
+    'user-events',
+    bootstrap_servers=['localhost:9092'],
+    value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+    group_id='user-events-processor',
+    auto_offset_reset='earliest',  # or 'latest'
+    enable_auto_commit=False,  # Manual commit for at-least-once
+    max_poll_records=100,  # Batch processing
+    session_timeout_ms=30000,
+    heartbeat_interval_ms=3000
+)
+
+# Consume messages
+try:
+    for message in consumer:
+        try:
+            # Process message
+            process_event(message.value)
+            # Commit offset after successful processing
+            consumer.commit()
+        except Exception as e:
+            # Handle error, don't commit
+            handle_error(message, e)
+            # Optionally send to dead-letter topic
+            send_to_dlq(message)
+finally:
+    consumer.close()
+```
+
+### Topic Design
+
+```bash
+# Create topic with proper configuration
+kafka-topics.sh --create \
+  --topic user-events \
+  --bootstrap-server localhost:9092 \
+  --partitions 6 \  # Based on throughput needs
+  --replication-factor 3 \  # For high availability
+  --config retention.ms=604800000 \  # 7 days retention
+  --config segment.ms=86400000 \  # Daily segments
+  --config compression.type=snappy
+
+# Topic naming convention
+# Format: <domain>.<entity>.<action>
+# Examples:
+#   ecommerce.orders.created
+#   ecommerce.orders.updated
+#   users.profile.updated
+#   payments.transaction.completed
+```
+
+### Partitioning Strategy
+
+```python
+# Key-based partitioning (ensures ordering per key)
+producer.send('orders', key='user-123', value=order_data)
+# All messages with same key go to same partition
+
+# Round-robin partitioning (no key)
+producer.send('events', value=event_data)  # No key = round-robin
+
+# Custom partitioner
+from kafka import Partitioner
+
+class CustomPartitioner(Partitioner):
+    def __call__(self, key, all_partitions, available_partitions):
+        # Custom logic
+        return hash(key) % len(available_partitions)
+```
+
+### Consumer Groups
+
+```python
+# Multiple consumers in same group = parallel processing
+# Each partition consumed by only one consumer in group
+
+consumer1 = KafkaConsumer('events', group_id='processors')
+consumer2 = KafkaConsumer('events', group_id='processors')
+consumer3 = KafkaConsumer('events', group_id='processors')
+
+# With 6 partitions:
+# Consumer1: partitions 0, 1
+# Consumer2: partitions 2, 3
+# Consumer3: partitions 4, 5
+```
+
+## Best Practices
+
+1. **Topic Design**
+   - Use descriptive, hierarchical naming: `domain.entity.action`
+   - Design partitions based on throughput (1 partition = ~1MB/s)
+   - Set appropriate retention policies
+   - Use compression (snappy, lz4, gzip)
+
+2. **Producer Configuration**
+   - Use `acks='all'` for durability
+   - Enable idempotence to prevent duplicates
+   - Use keys for partitioning when ordering matters
+   - Batch messages for better throughput
+   - Handle errors and retries properly
+
+3. **Consumer Configuration**
+   - Use consumer groups for parallel processing
+   - Commit offsets after processing (at-least-once)
+   - Handle errors gracefully (dead-letter queues)
+   - Set appropriate `max_poll_records` for batch processing
+   - Monitor consumer lag
+
+4. **Partitioning**
+   - Choose partition count based on peak throughput
+   - Use keys for partitioning when ordering is required
+   - Balance partition count (too few = bottleneck, too many = overhead)
+   - Consider future growth when setting partitions
+
+5. **Operations**
+   - Monitor broker health and replication
+   - Set up alerts for consumer lag
+   - Use Kafka Connect for external system integration
+   - Implement proper error handling and dead-letter queues
+   - Plan for cluster scaling (add brokers, rebalance partitions)
+
+## Common Pitfalls
+
+- **Too few partitions**: Limits parallelism and throughput
+- **Too many partitions**: Increases overhead and latency
+- **No key in messages**: Loses ordering guarantees
+- **Auto-commit enabled**: Can lose messages on crashes
+- **No error handling**: Failed messages block processing
+- **Ignoring consumer lag**: Indicates processing bottlenecks
+- **No monitoring**: Can't detect issues early
+- **Wrong acks setting**: Trade-off between durability and performance
+
+## Advanced Patterns
+
+### Exactly-Once Semantics
+
+```python
+# Producer with idempotence
+producer = KafkaProducer(
+    enable_idempotence=True,
+    acks='all',
+    max_in_flight_requests_per_connection=1
+)
+
+# Consumer with transactional processing
+consumer = KafkaConsumer(
+    'events',
+    group_id='processor',
+    enable_auto_commit=False,
+    isolation_level='read_committed'  # Only read committed messages
+)
+```
+
+### Dead Letter Queue Pattern
+
+```python
+def process_with_dlq(consumer, dlq_producer):
+    for message in consumer:
+        try:
+            process_message(message.value)
+            consumer.commit()
+        except Exception as e:
+            # Send to dead-letter queue
+            dlq_producer.send(
+                'events-dlq',
+                key=message.key,
+                value={
+                    'original_topic': message.topic,
+                    'original_partition': message.partition,
+                    'original_offset': message.offset,
+                    'error': str(e),
+                    'payload': message.value
+                }
+            )
+```
+
+### Schema Registry (Avro)
+
+```python
+from confluent_kafka.avro import AvroProducer, AvroConsumer
+
+# Producer with schema
+producer = AvroProducer({
+    'bootstrap.servers': 'localhost:9092',
+    'schema.registry.url': 'http://localhost:8081'
+})
+
+producer.produce(
+    topic='user-events',
+    value={'user_id': 123, 'event': 'login'},
+    value_schema=user_event_schema
+)
+```
+
+### Stream Processing (Kafka Streams)
+
+```python
+from kafka import KafkaStreams
+
+# Stream processing example
+streams = KafkaStreams(
+    {
+        'bootstrap.servers': 'localhost:9092',
+        'application.id': 'event-processor'
+    }
+)
+
+# Read from topic, process, write to another topic
+stream = streams.read('user-events')
+stream.filter(lambda k, v: v['event_type'] == 'purchase') \
+      .map_values(lambda v: {'user_id': v['user_id'], 'amount': v['amount']}) \
+      .to('purchases')
+```
+
+### Change Data Capture (CDC)
+
+```python
+# Capture database changes and publish to Kafka
+# Use Debezium or similar CDC tool
+# Pattern: database -> CDC -> Kafka -> consumers
+
+# Example: MySQL binlog -> Kafka
+# Consumers can react to database changes in real-time
+```

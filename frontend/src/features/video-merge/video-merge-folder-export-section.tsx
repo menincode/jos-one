@@ -63,6 +63,7 @@ export function VideoMergeFolderExportSection({
             onChange={onInputFolderChange}
             placeholder="VD: D:\Videos\clips"
             dialogKind="input"
+            directoryHint={outputFolder}
             browseTone="blue"
             disabled={formDisabled}
           />
@@ -73,6 +74,7 @@ export function VideoMergeFolderExportSection({
             onChange={onOutputFolderChange}
             placeholder="VD: D:\Videos\export"
             dialogKind="output"
+            directoryHint={inputFolder}
             browseTone="purple"
             disabled={formDisabled}
           />

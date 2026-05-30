@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  addLeadingVideosToRow,
+  setLeadingVideosForRow,
   buildMixValidationContext,
   getMixRowStatus,
   getMixRowStatusLabel,
+  getVideoMixUsageLabel,
+  validateMixRowAtIndex,
   validateMixRowsForStart,
 } from "@/features/video-merge/mix-row-utils";
 import type { MixRow } from "@/features/video-merge/mix-row-types";
@@ -50,6 +54,28 @@ describe("validateMixRowsForStart", () => {
       /vượt quá thời lượng tối đa/,
     );
   });
+
+  it("allows duplicate leading video across rows", () => {
+    const rows: MixRow[] = [
+      { id: "1", leadingPaths: ["/a.mp4"] },
+      { id: "2", leadingPaths: ["/a.mp4"] },
+    ];
+    expect(validateMixRowsForStart(rows, videos, false)).toBeNull();
+  });
+});
+
+describe("validateMixRowAtIndex", () => {
+  it("allows duplicate leading video across rows", () => {
+    const rows: MixRow[] = [
+      { id: "1", leadingPaths: ["/a.mp4"] },
+      { id: "2", leadingPaths: ["/a.mp4"] },
+    ];
+    const ctx = buildMixValidationContext({
+      loading: false,
+      probingDurations: false,
+    });
+    expect(validateMixRowAtIndex(1, rows[1], videos, ctx, rows)).toBeNull();
+  });
 });
 
 describe("getMixRowStatus", () => {
@@ -92,5 +118,96 @@ describe("getMixRowStatusLabel", () => {
         },
       ),
     ).toBe("Đang đọc thời lượng…");
+  });
+
+  it("uses short label for invalid rows", () => {
+    const row: MixRow = { id: "1", leadingPaths: ["/a.mp4", "/b.mp4", "/a.mp4", "/b.mp4", "/a.mp4", "/b.mp4"] };
+    expect(
+      getMixRowStatusLabel(row, {
+        rowIndex: 0,
+        videos: [
+          ...videos,
+          { name: "c.mp4", path: "/c.mp4", size_bytes: 1, duration_sec: 10 },
+          { name: "d.mp4", path: "/d.mp4", size_bytes: 1, duration_sec: 10 },
+          { name: "e.mp4", path: "/e.mp4", size_bytes: 1, duration_sec: 10 },
+          { name: "f.mp4", path: "/f.mp4", size_bytes: 1, duration_sec: 10 },
+        ],
+        validation: buildMixValidationContext({ loading: false, probingDurations: false }),
+      }),
+    ).toBe("Chưa hợp lệ");
+  });
+});
+
+describe("getVideoMixUsageLabel", () => {
+  it("returns mix label when path is used", () => {
+    const rows: MixRow[] = [
+      { id: "1", leadingPaths: ["/a.mp4"] },
+      { id: "2", leadingPaths: ["/b.mp4"] },
+    ];
+    expect(getVideoMixUsageLabel("/a.mp4", rows)).toBe("Đã dùng: Mix #1");
+    expect(getVideoMixUsageLabel("/c.mp4", rows)).toBeNull();
+  });
+
+  it("lists all mixes when path is reused", () => {
+    const rows: MixRow[] = [
+      { id: "1", leadingPaths: ["/a.mp4"] },
+      { id: "2", leadingPaths: ["/a.mp4", "/b.mp4"] },
+    ];
+    expect(getVideoMixUsageLabel("/a.mp4", rows)).toBe("Đã dùng: Mix #1, #2");
+  });
+});
+
+describe("setLeadingVideosForRow", () => {
+  it("replaces leading paths for a mix row", () => {
+    const rows: MixRow[] = [{ id: "1", leadingPaths: ["/a.mp4", "/b.mp4", "/c.mp4"] }];
+    const result = setLeadingVideosForRow(rows, "1", ["/a.mp4", "/b.mp4"]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.rows[0].leadingPaths).toEqual(["/a.mp4", "/b.mp4"]);
+    }
+  });
+
+  it("allows clearing all leading videos", () => {
+    const rows: MixRow[] = [{ id: "1", leadingPaths: ["/a.mp4"] }];
+    const result = setLeadingVideosForRow(rows, "1", []);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.rows[0].leadingPaths).toEqual([]);
+    }
+  });
+
+  it("allows path used in another row", () => {
+    const rows: MixRow[] = [
+      { id: "1", leadingPaths: ["/a.mp4"] },
+      { id: "2", leadingPaths: ["/b.mp4"] },
+    ];
+    const result = setLeadingVideosForRow(rows, "2", ["/a.mp4"]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.rows[1].leadingPaths).toEqual(["/a.mp4"]);
+    }
+  });
+});
+
+describe("addLeadingVideosToRow", () => {
+  it("appends paths up to max per row", () => {
+    const rows: MixRow[] = [{ id: "1", leadingPaths: [] }];
+    const result = addLeadingVideosToRow(rows, "1", ["/a.mp4", "/b.mp4"]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.rows[0].leadingPaths).toEqual(["/a.mp4", "/b.mp4"]);
+    }
+  });
+
+  it("allows path used in another row", () => {
+    const rows: MixRow[] = [
+      { id: "1", leadingPaths: ["/a.mp4"] },
+      { id: "2", leadingPaths: [] },
+    ];
+    const result = addLeadingVideosToRow(rows, "2", ["/a.mp4"]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.rows[1].leadingPaths).toEqual(["/a.mp4"]);
+    }
   });
 });

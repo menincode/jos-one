@@ -28,3 +28,10 @@ export interface SaveLoginSettingsPayload {
   username: string;
   password: string;
 }
+
+/** Folder paths + thread count — persisted in SQLite (desktop) or localStorage (browser). */
+export interface RemoveWatermarkSettings {
+  input_folder: string;
+  output_folder: string;
+  thread_count: number;
+}

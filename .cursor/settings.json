@@ -1,0 +1,45 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(pnpm:*)",
+      "Bash(yarn:*)",
+      "Bash(pip:*)",
+      "Bash(poetry:*)",
+      "Bash(python:*)",
+      "Bash(node:*)",
+      "Bash(pytest:*)",
+      "Bash(ruff:*)",
+      "Bash(eslint:*)",
+      "Bash(prettier:*)",
+      "Bash(tsc:*)",
+      "Bash(docker:*)",
+      "Bash(gh:*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)"
+    ],
+    "deny": [
+      "Write(website/**)",
+      "Edit(website/**)"
+    ]
+  },
+  "excludePatterns": [
+    "website/**",
+    "node_modules/**",
+    ".next/**",
+    ".astro/**",
+    "dist/**",
+    "build/**"
+  ],
+  "focusPatterns": [
+    "**/*.mdx",
+    "**/*.md",
+    "docs/**",
+    "src/content/docs/**",
+    "src/docs/**"
+  ]
+}
+

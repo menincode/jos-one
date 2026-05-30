@@ -10,6 +10,7 @@ BRIDGE_METHODS: tuple[str, ...] = (
     "open_folder_dialog",
     "open_input_folder_dialog",
     "open_output_folder_dialog",
+    "validate_merge_folders",
     "list_videos_in_folder",
     "probe_videos_in_folder",
     "open_folder_in_explorer",

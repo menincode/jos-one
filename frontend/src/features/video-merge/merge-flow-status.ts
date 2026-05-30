@@ -4,6 +4,8 @@ import {
 } from "@/features/video-merge/mix-row-utils";
 import type { MixRow } from "@/features/video-merge/mix-row-types";
 import type { VideoFileItem } from "@/lib/pywebview/types";
+import type { MergeFolderValidationState } from "@/features/video-merge/merge-folder-validation";
+import { getMergeFolderBlockingHint } from "@/features/video-merge/merge-folder-validation";
 import type { VideoMergeJobStatus } from "@/lib/pywebview/types";
 
 /** UI status keys for the Ghép Video action bar (idle setup → job lifecycle). */
@@ -33,6 +35,8 @@ export type MergeFlowStatusStyle = {
 export type MergeFlowStatusDisplay = {
   key: MergeFlowStatusKey;
   label: string;
+  detailMessage?: string;
+  showDetailInfo?: boolean;
   style: MergeFlowStatusStyle;
 };
 
@@ -120,6 +124,9 @@ const IDLE_HINT_KEYS: Record<string, MergeFlowStatusKey> = {
   "Đang khởi tạo…": "initializing",
   "Chọn thư mục đầu vào": "needs_input_folder",
   "Chọn thư mục đầu ra": "needs_output_folder",
+  "Đang kiểm tra thư mục…": "scanning_folder",
+  "Thư mục đầu vào không tồn tại": "needs_input_folder",
+  "Thư mục đầu ra không tồn tại": "needs_output_folder",
   "Đang quét thư mục…": "scanning_folder",
   "Đang đọc thời lượng…": "probing_duration",
   "Chưa có video": "no_videos",
@@ -133,6 +140,7 @@ const IDLE_LABELS: Partial<Record<MergeFlowStatusKey, string>> = {
   scanning_folder: "Đang quét thư mục…",
   probing_duration: "Đang đọc thời lượng…",
   no_videos: "Chưa có video",
+  invalid_mix: "Chưa hợp lệ",
   ready: "Sẵn sàng",
   preparing: "Đang chuẩn bị…",
   merging: "Đang ghép video…",
@@ -165,13 +173,23 @@ function resolveIdleDisplay(
   canStartMerge: boolean,
 ): MergeFlowStatusDisplay {
   const key = resolveIdleKey(startHint, canStartMerge);
-  const label =
-    key === "ready"
-      ? IDLE_LABELS.ready!
-      : key === "invalid_mix"
-        ? (startHint?.trim() || IDLE_LABELS.invalid_mix || "Chưa hợp lệ")
-        : (IDLE_LABELS[key] ?? startHint?.trim() ?? "Chưa hợp lệ");
+  const hint = startHint?.trim();
 
+  if (key === "ready") {
+    return { key, label: IDLE_LABELS.ready!, style: MERGE_FLOW_STATUS_STYLES.ready };
+  }
+
+  if (key === "invalid_mix" && hint) {
+    return {
+      key,
+      label: IDLE_LABELS.invalid_mix!,
+      detailMessage: hint,
+      showDetailInfo: true,
+      style: MERGE_FLOW_STATUS_STYLES.invalid_mix,
+    };
+  }
+
+  const label = IDLE_LABELS[key] ?? hint ?? "Chưa hợp lệ";
   return { key, label, style: MERGE_FLOW_STATUS_STYLES[key] };
 }
 
@@ -223,18 +241,36 @@ export function resolveMergeFlowStatus(
   }
 
   if (mergeStatus === "done") {
-    const label = jobMessage?.trim() || IDLE_LABELS.done!;
-    return { key: "done", label, style: MERGE_FLOW_STATUS_STYLES.done };
+    const detail = jobMessage?.trim();
+    return {
+      key: "done",
+      label: IDLE_LABELS.done!,
+      detailMessage: detail && detail !== IDLE_LABELS.done ? detail : undefined,
+      showDetailInfo: Boolean(detail && detail !== IDLE_LABELS.done),
+      style: MERGE_FLOW_STATUS_STYLES.done,
+    };
   }
 
   if (mergeStatus === "error") {
-    const label = jobMessage?.trim() || IDLE_LABELS.error!;
-    return { key: "error", label, style: MERGE_FLOW_STATUS_STYLES.error };
+    const detail = jobMessage?.trim();
+    return {
+      key: "error",
+      label: IDLE_LABELS.error!,
+      detailMessage: detail && detail !== IDLE_LABELS.error ? detail : undefined,
+      showDetailInfo: Boolean(detail && detail !== IDLE_LABELS.error),
+      style: MERGE_FLOW_STATUS_STYLES.error,
+    };
   }
 
   if (mergeStatus === "cancelled") {
-    const label = jobMessage?.trim() || IDLE_LABELS.cancelled!;
-    return { key: "cancelled", label, style: MERGE_FLOW_STATUS_STYLES.cancelled };
+    const detail = jobMessage?.trim();
+    return {
+      key: "cancelled",
+      label: IDLE_LABELS.cancelled!,
+      detailMessage: detail && detail !== IDLE_LABELS.cancelled ? detail : undefined,
+      showDetailInfo: Boolean(detail && detail !== IDLE_LABELS.cancelled),
+      style: MERGE_FLOW_STATUS_STYLES.cancelled,
+    };
   }
 
   return resolveIdleDisplay(startHint, canStartMerge);
@@ -246,6 +282,7 @@ export function getStartMergeHint(params: {
   settingsLoading: boolean;
   inputFolder: string;
   outputFolder: string;
+  folderValidation: MergeFolderValidationState;
   videos: VideoFileItem[];
   loading: boolean;
   probingDurations: boolean;
@@ -263,11 +300,9 @@ export function getStartMergeHint(params: {
   if (!params.hydrated) {
     return IDLE_LABELS.initializing;
   }
-  if (!params.inputFolder.trim()) {
-    return IDLE_LABELS.needs_input_folder;
-  }
-  if (!params.outputFolder.trim()) {
-    return IDLE_LABELS.needs_output_folder;
+  const folderHint = getMergeFolderBlockingHint(params.folderValidation);
+  if (folderHint) {
+    return folderHint;
   }
   if (params.loading) {
     return IDLE_LABELS.scanning_folder;

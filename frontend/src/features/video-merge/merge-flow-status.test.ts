@@ -34,13 +34,15 @@ describe("resolveMergeFlowStatus", () => {
     expect(result.style.pulse).toBe(true);
   });
 
-  it("shows done with success style", () => {
+  it("shows short invalid_mix label with detail message", () => {
     const result = resolveMergeFlowStatus({
-      mergeStatus: "done",
-      canStartMerge: true,
-      jobMessage: "Hoàn tất 3 video.",
+      mergeStatus: "idle",
+      canStartMerge: false,
+      startHint: "Thêm ít nhất một dòng mix.",
     });
-    expect(result.key).toBe("done");
-    expect(result.label).toBe("Hoàn tất 3 video.");
+    expect(result.key).toBe("invalid_mix");
+    expect(result.label).toBe("Chưa hợp lệ");
+    expect(result.detailMessage).toBe("Thêm ít nhất một dòng mix.");
+    expect(result.showDetailInfo).toBe(true);
   });
 });

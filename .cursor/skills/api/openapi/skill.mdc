@@ -1,0 +1,96 @@
+---
+description: Best practices and patterns for OpenAPI
+---
+
+# OpenAPI
+
+## Description
+
+OpenAPI/Swagger specification patterns for REST API documentation.
+
+## When to Use
+
+- Documenting REST APIs
+- Generating API clients
+- API design-first development
+
+---
+
+## Core Patterns
+
+### Basic Specification
+
+```yaml
+openapi: 3.0.3
+info:
+  title: My API
+  version: 1.0.0
+
+paths:
+  /users:
+    get:
+      summary: List users
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+      required:
+        - id
+        - email
+```
+
+### Request Body
+
+```yaml
+requestBody:
+  required: true
+  content:
+    application/json:
+      schema:
+        $ref: '#/components/schemas/CreateUser'
+      example:
+        email: user@example.com
+        name: John
+```
+
+### Error Responses
+
+```yaml
+responses:
+  '400':
+    description: Bad request
+    content:
+      application/json:
+        schema:
+          $ref: '#/components/schemas/Error'
+```
+
+## Best Practices
+
+1. Use $ref for reusable schemas
+2. Include examples
+3. Document all error responses
+4. Use proper HTTP status codes
+5. Add security schemes
+
+## Common Pitfalls
+
+- **Missing examples**: Add realistic examples
+- **No error docs**: Document all errors
+- **Inconsistent naming**: Use consistent conventions

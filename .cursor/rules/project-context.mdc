@@ -1,0 +1,96 @@
+---
+description: Project context — JOS One (pywebview + React), stack, layout, CONTEXT folder
+alwaysApply: true
+---
+
+# Project Context
+
+## Overview
+
+This repository is **JOS One** (`jos-one`): a **Python/pywebview** host with a **React/Vite** UI for [JOSVN – Journey Of Steps](https://josvn.com/). Primary target: **Windows** (PyInstaller onefile). The `.cursor/` tree is the Cursor toolkit; product code is `frontend/` + `python/`.
+
+**Full context for AI/contributors:** read files under **`CONTEXT/`** (source of truth):
+
+| File | Use when |
+|------|----------|
+| `CONTEXT/project-overview.md` | Stack, layout, commands |
+| `CONTEXT/architecture-context.md` | Bridge, JsApi, routing, services |
+| `CONTEXT/code-standards.md` | uv/Yarn, security, tests |
+| `CONTEXT/ai-workflow-rules.md` | How to change Python/bridge/UI |
+| `CONTEXT/ui-context.md` | React layout, features, theming |
+| `CONTEXT/progress-tracker.md` | Feature status snapshot |
+
+## Strict rules
+
+1. **Package managers**: **uv** for Python; **Yarn** for `frontend/` only (never npm/pnpm for frontend).
+2. **Bridge boundary**: OS/files/FFmpeg/auth HTTP from desktop → **Python `JsApi`** (`python/api/js_api.py`). UI uses `frontend/src/lib/pywebview/*` — not raw `window.pywebview.api` in pages.
+3. **Common UI**: Reuse `frontend/src/components/common/` and layout under `components/layout/` before adding one-off styles.
+4. **No SaaS assumptions**: There is no `apps/backend`, NestJS, Wails `desktop/`, or `packages/models` in this repo.
+
+## Tech stack
+
+| Layer | Choice |
+|-------|--------|
+| Desktop host | Python 3.11+, pywebview 5.x, uv |
+| UI | React 19, Vite 6, TypeScript, Tailwind 4, shadcn-style components, Zustand |
+| Persistence | SQLite (`python/db/settings_repository.py`) |
+| Media | ffmpeg-python + bundled `plugins/ffmpeg` |
+| Auth | Google Apps Script HTTP API (`AUTH_API_URL`) |
+| Testing | pytest (`python/tests`), Vitest (`frontend`) |
+| Packaging | PyInstaller + optional UPX → `dist/jos-one.exe` |
+
+## Repository layout
+
+```
+frontend/       # Yarn + Vite + React UI
+python/         # pywebview host, JsApi, services, tests
+packaging/      # PyInstaller spec, icons
+scripts/        # dev.ps1, dev.sh
+plugins/        # gitignored runtime binaries (ffmpeg)
+data/           # SQLite
+docs/           # RS*, DS*, FR* docs
+CONTEXT/        # Project context for AI (read first)
+.cursor/        # Cursor rules, commands, skills
+```
+
+## Architecture (conceptual)
+
+- **Host:** `python/main.py` → webview window → `JsApi` + `WindowBridge` on `loaded`.
+- **UI:** HashRouter → protected routes → `VideoMergePage` (home), Settings, Login.
+- **Video merge:** `python/services/video_merge/{io,pipeline,job}.py` ← called from JsApi; UI in `frontend/src/features/video-merge/`.
+
+## Behavioral modes
+
+| Mode | Best for |
+|------|----------|
+| `default` | General tasks |
+| `implementation` | Shipping features |
+| `deep-research` | Audits |
+| `review` | PRs |
+
+See `.cursor/modes/` when present. Command flags: `--mode`, `--depth`, `--save` (see `output-paths.mdc`).
+
+## Run / troubleshoot
+
+| Task | Command |
+|------|---------|
+| Install | `make install` |
+| Dev (HMR) | `make dev` |
+| Prod-like | `make start` |
+| Browser-only UI | `make local` |
+| Tests | `uv run pytest`, `yarn --cwd frontend test` |
+| Package EXE | `make package` |
+
+- **Auth (desktop):** `AUTH_API_URL` env (Python). **Browser local:** `VITE_AUTH_API_URL` in `frontend/.env`.
+- **Dev URL:** `DEV_SERVER_URL` (default `http://127.0.0.1:5173`).
+- **FFmpeg:** run app once or `make dev` to populate `plugins/ffmpeg`; integration tests need it.
+
+## Exclusions
+
+Skip unless asked: `node_modules/`, `.venv/`, `build/`, `dist/`, `frontend/dist`, `plugins/`.
+
+## Related rules
+
+- `security.mdc`, `package-manager.mdc`, `code-conventions.mdc`, `context-folder.mdc`
+- pywebview: `.cursor/skills/frameworks/pywebview/SKILL.md`
+- ffmpeg-python: `.cursor/skills/python/ffmpeg-python/SKILL.md`

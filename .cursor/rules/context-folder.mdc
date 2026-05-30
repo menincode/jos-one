@@ -1,0 +1,27 @@
+---
+description: Thư mục CONTEXT — tài liệu dự án tại root; ưu tiên đọc khi hiểu kiến trúc, UI, chuẩn code
+alwaysApply: true
+---
+
+# CONTEXT (repo root `CONTEXT/`)
+
+Các file Markdown dưới đây là **nguồn tóm tắt** cho contributor và AI. Khi làm việc liên quan kiến trúc, UI, chuẩn code, hoặc task lớn đa module, **đọc các file tương ứng** thay vì chỉ đoán từ code rải rác.
+
+| File | Dùng khi |
+|------|----------|
+| `CONTEXT/project-overview.md` | Tổng quan JOS One, stack pywebview + React, lệnh Make |
+| `CONTEXT/architecture-context.md` | Luồng UI → JsApi → services, routing, SQLite, FFmpeg |
+| `CONTEXT/code-standards.md` | uv/Yarn, security, pytest/Vitest |
+| `CONTEXT/ai-workflow-rules.md` | Quy trình sửa Python bridge, frontend features |
+| `CONTEXT/ui-context.md` | React layout, video-merge UI, theming |
+| `CONTEXT/progress-tracker.md` | Trạng thái nhanh; **lịch sử feature** xem `README.md` |
+
+## Hành vi mong muốn
+
+1. Trước khi thiết kế hoặc refactor xuyên suốt **`frontend/`**, **`python/`**: đọc `architecture-context.md` và `ai-workflow-rules.md`.
+2. Thêm màn hình/tính năng UI: căn theo `ui-context.md` (layout + `components/common/`).
+3. Cập nhật milestone: chỉnh `progress-tracker.md`; chi tiết implementation ghi trong `README.md` hoặc `docs/`.
+
+**Nghiên cứu dự án:** `docs/02-research/RS002-jos-desktop-project-research.md` (snapshot 2026-05-29).
+
+**Lưu ý:** Rule này **nhắc đọc** `CONTEXT/`; nội dung đầy đủ nằm trong các file đó.

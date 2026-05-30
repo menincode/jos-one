@@ -1,0 +1,50 @@
+[data-sonner-toaster].jos-toaster {
+  --toast-close-button-start: unset;
+  --toast-close-button-end: 0;
+  --toast-close-button-transform: translate(35%, -35%);
+}
+
+[data-sonner-toaster].jos-toaster [data-sonner-toast] {
+  position: relative;
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: auto;
+}
+
+[data-sonner-toaster].jos-toaster [data-sonner-toast] [data-content],
+[data-sonner-toaster].jos-toaster [data-sonner-toast] [data-title],
+[data-sonner-toaster].jos-toaster [data-sonner-toast] [data-description] {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+[data-sonner-toaster].jos-toaster [data-sonner-toast] [data-close-button] {
+  user-select: none;
+  cursor: pointer;
+  background: var(--normal-bg);
+  border: 1px solid var(--normal-border);
+  color: var(--normal-text);
+  opacity: 0.85;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  z-index: 1;
+}
+
+[data-sonner-toaster].jos-toaster [data-sonner-toast] [data-close-button]:hover {
+  background: var(--normal-bg-hover);
+  border-color: var(--normal-border-hover);
+  opacity: 1;
+}
+
+[data-sonner-toaster].jos-toaster [data-sonner-toast] [data-close-button] svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}

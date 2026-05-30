@@ -1,0 +1,547 @@
+---
+description: Best practices and patterns for Echo framework
+globs: ['**/*.go', '**/handlers/**', '**/routes/**', '**/middleware/**', '**/main.go']
+---
+
+# Echo Framework
+
+## Description
+
+Echo is a high-performance, minimalist web framework for Go. Features fast routing, middleware support, data binding, and template rendering.
+
+## When to Use
+
+- Building REST APIs with Go
+- High-performance web applications
+- Applications requiring clean API
+- Microservices architecture
+
+---
+
+## Core Patterns
+
+### Project Structure
+
+```
+cmd/
+â””â”€â”€ server/
+    â””â”€â”€ main.go
+internal/
+â”œâ”€â”€ handlers/
+â”‚   â””â”€â”€ user_handler.go
+â”œâ”€â”€ services/
+â”‚   â””â”€â”€ user_service.go
+â”œâ”€â”€ repositories/
+â”‚   â””â”€â”€ user_repository.go
+â”œâ”€â”€ models/
+â”‚   â””â”€â”€ user.go
+â”œâ”€â”€ middleware/
+â”‚   â”œâ”€â”€ auth.go
+â”‚   â””â”€â”€ logger.go
+â””â”€â”€ routes/
+    â””â”€â”€ routes.go
+configs/
+â””â”€â”€ config.go
+```
+
+### Basic Setup
+
+```go
+// cmd/server/main.go
+package main
+
+import (
+    "github.com/labstack/echo/v4"
+    "github.com/labstack/echo/v4/middleware"
+    "your-app/internal/routes"
+    "your-app/configs"
+)
+
+func main() {
+    e := echo.New()
+    
+    // Middleware
+    e.Use(middleware.Logger())
+    e.Use(middleware.Recover())
+    e.Use(middleware.RequestID())
+    
+    // CORS
+    e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+        AllowOrigins: []string{"https://example.com"},
+        AllowMethods: []string{echo.GET, echo.POST, echo.PUT, echo.DELETE},
+    }))
+    
+    // Routes
+    routes.SetupRoutes(e)
+    
+    // Start server
+    e.Logger.Fatal(e.Start(":8080"))
+}
+```
+
+### Route Organization
+
+```go
+// internal/routes/routes.go
+package routes
+
+import (
+    "github.com/labstack/echo/v4"
+    "your-app/internal/handlers"
+    "your-app/internal/middleware"
+)
+
+func SetupRoutes(e *echo.Echo) {
+    // Public routes
+    public := e.Group("/api/v1")
+    {
+        public.POST("/auth/login", handlers.Login)
+        public.POST("/auth/register", handlers.Register)
+    }
+    
+    // Protected routes
+    protected := e.Group("/api/v1")
+    protected.Use(middleware.AuthMiddleware())
+    {
+        users := protected.Group("/users")
+        {
+            users.GET("", handlers.GetUsers)
+            users.GET("/:id", handlers.GetUser)
+            users.POST("", handlers.CreateUser)
+            users.PUT("/:id", handlers.UpdateUser)
+            users.DELETE("/:id", handlers.DeleteUser)
+        }
+    }
+}
+```
+
+### Handler Pattern
+
+```go
+// internal/handlers/user_handler.go
+package handlers
+
+import (
+    "net/http"
+    "strconv"
+    
+    "github.com/labstack/echo/v4"
+    "your-app/internal/models"
+    "your-app/internal/services"
+)
+
+type UserHandler struct {
+    userService *services.UserService
+}
+
+func NewUserHandler(userService *services.UserService) *UserHandler {
+    return &UserHandler{userService: userService}
+}
+
+func (h *UserHandler) GetUsers(c echo.Context) error {
+    users, err := h.userService.GetAll()
+    if err != nil {
+        return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+    }
+    return c.JSON(http.StatusOK, map[string]interface{}{
+        "success": true,
+        "data":    users,
+    })
+}
+
+func (h *UserHandler) GetUser(c echo.Context) error {
+    id, err := strconv.Atoi(c.Param("id"))
+    if err != nil {
+        return echo.NewHTTPError(http.StatusBadRequest, "Invalid ID")
+    }
+    
+    user, err := h.userService.GetByID(id)
+    if err != nil {
+        return echo.NewHTTPError(http.StatusNotFound, "User not found")
+    }
+    
+    return c.JSON(http.StatusOK, map[string]interface{}{
+        "success": true,
+        "data":    user,
+    })
+}
+
+func (h *UserHandler) CreateUser(c echo.Context) error {
+    var req models.CreateUserRequest
+    if err := c.Bind(&req); err != nil {
+        return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+    }
+    
+    if err := c.Validate(&req); err != nil {
+        return err
+    }
+    
+    user, err := h.userService.Create(&req)
+    if err != nil {
+        return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+    }
+    
+    return c.JSON(http.StatusCreated, map[string]interface{}{
+        "success": true,
+        "data":    user,
+    })
+}
+```
+
+### Request Binding and Validation
+
+```go
+// internal/models/user.go
+package models
+
+import "github.com/go-playground/validator/v10"
+
+type CreateUserRequest struct {
+    Email    string `json:"email" validate:"required,email"`
+    Name     string `json:"name" validate:"required,min=2,max=50"`
+    Password string `json:"password" validate:"required,min=8"`
+}
+
+type UpdateUserRequest struct {
+    Name string `json:"name" validate:"omitempty,min=2,max=50"`
+}
+
+type UserResponse struct {
+    ID        int    `json:"id"`
+    Email     string `json:"email"`
+    Name      string `json:"name"`
+    CreatedAt string `json:"created_at"`
+}
+
+// Custom validator
+type CustomValidator struct {
+    validator *validator.Validate
+}
+
+func (cv *CustomValidator) Validate(i interface{}) error {
+    return cv.validator.Struct(i)
+}
+
+// Register in main.go
+e.Validator = &CustomValidator{validator: validator.New()}
+```
+
+### Middleware Pattern
+
+```go
+// internal/middleware/auth.go
+package middleware
+
+import (
+    "net/http"
+    "strings"
+    
+    "github.com/labstack/echo/v4"
+    "your-app/internal/utils"
+)
+
+func AuthMiddleware() echo.MiddlewareFunc {
+    return func(next echo.HandlerFunc) echo.HandlerFunc {
+        return func(c echo.Context) error {
+            authHeader := c.Request().Header.Get("Authorization")
+            if authHeader == "" {
+                return echo.NewHTTPError(http.StatusUnauthorized, "Authorization header required")
+            }
+            
+            tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+            if tokenString == authHeader {
+                return echo.NewHTTPError(http.StatusUnauthorized, "Invalid authorization format")
+            }
+            
+            claims, err := utils.ValidateToken(tokenString)
+            if err != nil {
+                return echo.NewHTTPError(http.StatusUnauthorized, "Invalid token")
+            }
+            
+            // Set user info in context
+            c.Set("userID", claims.UserID)
+            c.Set("email", claims.Email)
+            
+            return next(c)
+        }
+    }
+}
+```
+
+### Error Handling
+
+```go
+// internal/middleware/error_handler.go
+package middleware
+
+import (
+    "net/http"
+    
+    "github.com/labstack/echo/v4"
+)
+
+type ErrorResponse struct {
+    Error   string `json:"error"`
+    Message string `json:"message,omitempty"`
+}
+
+func CustomHTTPErrorHandler(err error, c echo.Context) {
+    code := http.StatusInternalServerError
+    message := "Internal Server Error"
+    
+    if he, ok := err.(*echo.HTTPError); ok {
+        code = he.Code
+        message = he.Message.(string)
+    }
+    
+    if !c.Response().Committed {
+        if c.Request().Method == http.MethodHead {
+            err = c.NoContent(code)
+        } else {
+            err = c.JSON(code, ErrorResponse{
+                Error:   http.StatusText(code),
+                Message: message,
+            })
+        }
+        if err != nil {
+            c.Logger().Error(err)
+        }
+    }
+}
+
+// Register in main.go
+e.HTTPErrorHandler = middleware.CustomHTTPErrorHandler
+```
+
+### Service Layer
+
+```go
+// internal/services/user_service.go
+package services
+
+import (
+    "errors"
+    "your-app/internal/models"
+    "your-app/internal/repositories"
+)
+
+type UserService struct {
+    userRepo *repositories.UserRepository
+}
+
+func NewUserService(userRepo *repositories.UserRepository) *UserService {
+    return &UserService{userRepo: userRepo}
+}
+
+func (s *UserService) GetAll() ([]*models.UserResponse, error) {
+    return s.userRepo.FindAll()
+}
+
+func (s *UserService) GetByID(id int) (*models.UserResponse, error) {
+    user, err := s.userRepo.FindByID(id)
+    if err != nil {
+        return nil, errors.New("user not found")
+    }
+    return user, nil
+}
+
+func (s *UserService) Create(req *models.CreateUserRequest) (*models.UserResponse, error) {
+    // Check if email exists
+    exists, _ := s.userRepo.ExistsByEmail(req.Email)
+    if exists {
+        return nil, errors.New("email already exists")
+    }
+    
+    // Create user
+    return s.userRepo.Create(req)
+}
+```
+
+### Server Configuration
+
+```go
+// cmd/server/main.go
+func main() {
+    e := echo.New()
+    
+    // Server configuration
+    s := &http.Server{
+        Addr:         ":8080",
+        ReadTimeout:  15 * time.Second,
+        WriteTimeout: 15 * time.Second,
+        IdleTimeout:  60 * time.Second,
+    }
+    
+    // Setup routes
+    routes.SetupRoutes(e)
+    
+    // Start server
+    e.Logger.Fatal(e.StartServer(s))
+}
+```
+
+## Best Practices
+
+1. **Project Structure**
+   - Use layered architecture (handlers, services, repositories)
+   - Keep handlers thin (only bind requests and call services)
+   - Separate business logic into services
+   - Use repositories for data access
+
+2. **Server Configuration**
+   - Set appropriate timeouts (ReadTimeout, WriteTimeout, IdleTimeout)
+   - Configure connection pooling for databases
+   - Use environment variables for configuration
+   - Enable compression middleware
+
+3. **Middleware**
+   - Apply middleware selectively to routes
+   - Use built-in middleware when possible
+   - Order middleware correctly
+   - Keep middleware focused and small
+
+4. **Error Handling**
+   - Use centralized error handler
+   - Return consistent error responses
+   - Use echo.NewHTTPError for HTTP errors
+   - Log errors appropriately
+
+5. **Validation**
+   - Use struct tags for validation
+   - Register custom validators
+   - Validate at handler level
+   - Return clear validation errors
+
+6. **Performance**
+   - Use connection pooling
+   - Minimize middleware overhead
+   - Use efficient JSON libraries for large payloads
+   - Configure timeouts properly
+
+7. **Security**
+   - Validate all input
+   - Use parameterized queries
+   - Implement rate limiting
+   - Use HTTPS in production
+   - Configure CORS properly
+
+## Common Pitfalls
+
+- **No timeout configuration**: Set ReadTimeout, WriteTimeout, IdleTimeout
+- **No connection pooling**: Configure database connection pools
+- **No error handling**: Implement centralized error handler
+- **No validation**: Always validate input
+- **Blocking operations**: Use goroutines for async work
+- **No rate limiting**: Implement rate limiting middleware
+- **Memory leaks**: Properly close resources
+- **No logging**: Use structured logging
+
+## Advanced Patterns
+
+### Custom Validator
+
+```go
+// internal/validators/custom_validator.go
+package validators
+
+import (
+    "github.com/go-playground/validator/v10"
+    "regexp"
+)
+
+func ValidatePassword(fl validator.FieldLevel) bool {
+    password := fl.Field().String()
+    hasUpper := regexp.MustCompile(`[A-Z]`).MatchString(password)
+    hasLower := regexp.MustCompile(`[a-z]`).MatchString(password)
+    hasNumber := regexp.MustCompile(`[0-9]`).MatchString(password)
+    return hasUpper && hasLower && hasNumber
+}
+
+// Register in main.go
+validate := validator.New()
+validate.RegisterValidation("password", ValidatePassword)
+e.Validator = &CustomValidator{validator: validate}
+```
+
+### Rate Limiting
+
+```go
+// internal/middleware/rate_limit.go
+package middleware
+
+import (
+    "net/http"
+    
+    "github.com/labstack/echo/v4"
+    "golang.org/x/time/rate"
+)
+
+func RateLimitMiddleware() echo.MiddlewareFunc {
+    limiter := rate.NewLimiter(100, 10)
+    
+    return func(next echo.HandlerFunc) echo.HandlerFunc {
+        return func(c echo.Context) error {
+            if !limiter.Allow() {
+                return echo.NewHTTPError(http.StatusTooManyRequests, "Rate limit exceeded")
+            }
+            return next(c)
+        }
+    }
+}
+```
+
+### Request ID
+
+```go
+// Echo has built-in RequestID middleware
+e.Use(middleware.RequestIDWithConfig(middleware.RequestIDConfig{
+    Generator: func() string {
+        return uuid.New().String()
+    },
+}))
+```
+
+### Graceful Shutdown
+
+```go
+// cmd/server/main.go
+func main() {
+    e := echo.New()
+    routes.SetupRoutes(e)
+    
+    s := &http.Server{
+        Addr:    ":8080",
+        Handler: e,
+    }
+    
+    go func() {
+        if err := e.StartServer(s); err != nil && err != http.ErrServerClosed {
+            e.Logger.Fatal("shutting down the server")
+        }
+    }()
+    
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, os.Interrupt)
+    <-quit
+    
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+    
+    if err := e.Shutdown(ctx); err != nil {
+        e.Logger.Fatal(err)
+    }
+}
+```
+
+### Context Values
+
+```go
+// Get user from context
+userID := c.Get("userID").(int)
+
+// Set value in context
+c.Set("key", value)
+
+// Get with default
+value := c.Get("key", "default")
+```

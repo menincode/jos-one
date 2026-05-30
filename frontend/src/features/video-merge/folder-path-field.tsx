@@ -16,6 +16,8 @@ type FolderPathFieldProps = {
   placeholder?: string;
   /** Input: video file picker (shows files). Output: native folder picker. */
   dialogKind: FolderDialogKind;
+  /** When this field is empty, open the dialog at this path (e.g. the other folder). */
+  directoryHint?: string;
   browseTone?: AppIconTone;
   disabled?: boolean;
 };
@@ -27,6 +29,7 @@ export function FolderPathField({
   onChange,
   placeholder = "Dán đường dẫn thư mục hoặc bấm Duyệt…",
   dialogKind,
+  directoryHint = "",
   browseTone = "blue",
   disabled = false,
 }: FolderPathFieldProps) {
@@ -35,7 +38,7 @@ export function FolderPathField({
   async function handleBrowse() {
     try {
       const client = await createBridgeClient();
-      const hint = value.trim();
+      const hint = value.trim() || directoryHint.trim();
       const result =
         dialogKind === "input"
           ? await client.openInputFolderDialog(hint)

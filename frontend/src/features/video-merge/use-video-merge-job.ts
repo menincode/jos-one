@@ -6,6 +6,7 @@ import type { VideoMergeExportSettings } from "@/features/video-merge/video-merg
 import { createBridgeClient } from "@/lib/pywebview/api-client";
 import { isPywebviewShell } from "@/lib/pywebview/readiness";
 import type {
+  VideoMergeJobOutput,
   VideoMergeJobStatus,
   VideoMergeRowJobState,
 } from "@/lib/pywebview/types";
@@ -30,6 +31,9 @@ export function useVideoMergeJob() {
   const [rowJobStates, setRowJobStates] = useState<Record<string, VideoMergeRowJobState>>(
     {},
   );
+  const [jobOutputs, setJobOutputs] = useState<VideoMergeJobOutput[]>([]);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const statusRef = useRef<VideoMergeJobStatus>("idle");
 
   const applyJobSnapshot = useCallback(
     (job: {
@@ -37,12 +41,18 @@ export function useVideoMergeJob() {
       message?: string;
       progress?: number;
       total?: number;
+      outputs?: VideoMergeJobOutput[];
       row_states?: Record<string, VideoMergeRowJobState>;
     }) => {
       setStatus(job.status);
+      statusRef.current = job.status;
+      if (job.status !== "running") {
+        setIsCancelling(false);
+      }
       setJobMessage(typeof job.message === "string" ? job.message : "");
       setJobProgress(typeof job.progress === "number" ? job.progress : 0);
       setJobTotal(typeof job.total === "number" ? job.total : 0);
+      setJobOutputs(Array.isArray(job.outputs) ? job.outputs : []);
       setRowJobStates(
         job.row_states && typeof job.row_states === "object" ? job.row_states : {},
       );
@@ -120,7 +130,7 @@ export function useVideoMergeJob() {
           const ffmpeg = await client.getFfmpegStatus();
           if (!ffmpeg.ready) {
             toast.error(
-              "FFmpeg chưa sẵn sàng. Đợi tải plugin xong (màn Cài đặt) rồi thử lại.",
+              "FFmpeg chưa sẵn sàng. Đợi tải plugin xong rồi thử lại.",
             );
             return;
           }
@@ -137,10 +147,13 @@ export function useVideoMergeJob() {
           return;
         }
         setStatus("running");
+        statusRef.current = "running";
+        setIsCancelling(false);
         setJobMessage("Đang chuẩn bị…");
         setJobProgress(0);
         setJobTotal(0);
         setRowJobStates({});
+        setJobOutputs([]);
         startPolling();
         toast.message("Đang ghép video…");
       } catch (err) {
@@ -153,32 +166,44 @@ export function useVideoMergeJob() {
   );
 
   const cancel = useCallback(async () => {
-    if (!isRunning) {
+    if (statusRef.current !== "running") {
       toast.message("Không có tác vụ ghép đang chạy.");
       return;
     }
+    if (isCancelling) {
+      return;
+    }
+    setIsCancelling(true);
     try {
       const client = await createBridgeClient();
       const result = await client.cancelVideoMergeJob();
       if (!result.ok) {
+        setIsCancelling(false);
         toast.error(result.message || "Không hủy được tác vụ.");
         return;
       }
-      toast.message("Đang hủy…");
+      toast.message("Đang hủy… (dừng FFmpeg và các luồng đang chạy)");
+      stopPolling();
+      pollRef.current = window.setInterval(() => {
+        void pollStatus();
+      }, 250);
       void pollStatus();
     } catch (err) {
+      setIsCancelling(false);
       const message = err instanceof Error ? err.message : "Không hủy được ghép video.";
       toast.error(message);
     }
-  }, [isRunning, pollStatus]);
+  }, [isCancelling, pollStatus, stopPolling]);
 
   return {
     isRunning,
+    isCancelling,
     status,
     jobMessage,
     jobProgress,
     jobTotal,
     rowJobStates,
+    jobOutputs,
     start,
     cancel,
   };

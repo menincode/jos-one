@@ -1,3 +1,4 @@
+import { ExportDurationMinMax } from "@/features/video-merge/export-duration-min-max";
 import {
   ExportField,
   ExportMinMax,
@@ -109,20 +110,16 @@ export function VideoMergeExportSettingsPanel({
 
   const durationField = (
     <ExportField
-      label="Thời gian (s)"
+      label="Thời gian (phút)"
       className={isGrid ? `${compactField} w-[9.75rem]` : undefined}
     >
-      <ExportMinMax
+      <ExportDurationMinMax
         minId="export-duration-min"
         maxId="export-duration-max"
-        minValue={settings.durationMinSec}
-        maxValue={settings.durationMaxSec}
+        minValueSec={settings.durationMinSec}
+        maxValueSec={settings.durationMaxSec}
         onMinChange={(durationMinSec) => onChange({ durationMinSec })}
         onMaxChange={(durationMaxSec) => onChange({ durationMaxSec })}
-        minPlaceholder="60"
-        maxPlaceholder="90"
-        step="1"
-        inputMode="numeric"
         {...(isGrid ? compactMinMax : {})}
       />
     </ExportField>
@@ -195,6 +192,7 @@ export function VideoMergeExportSettingsPanel({
     <ExportField
       label={isGrid ? "Luồng" : "Luồng đồng thời"}
       className={isGrid ? `${compactField} w-[4.25rem]` : undefined}
+      title="Số luồng ghép mix song song. Mỗi mix cũng render nhiều clip song song — tổng FFmpeg có thể ~ bình phương giá trị này. Giảm nếu máy lag."
     >
       <ExportNumberInput
         id="export-concurrency"

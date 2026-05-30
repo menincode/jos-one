@@ -1,3 +1,8 @@
+import {
+  DEFAULT_DURATION_MAX_SEC,
+  DEFAULT_DURATION_MIN_SEC,
+} from "@/features/video-merge/export-duration-units";
+
 export type VideoExportFormat = "mp4" | "mkv";
 
 /** FFmpeg xfade name, or none / random for tail-clip transitions. */
@@ -202,8 +207,8 @@ export const DEFAULT_EXPORT_SETTINGS: VideoMergeExportSettings = {
   format: "mp4",
   resolution: "1920x1080",
   fps: "30",
-  durationMinSec: "60",
-  durationMaxSec: "90",
+  durationMinSec: DEFAULT_DURATION_MIN_SEC,
+  durationMaxSec: DEFAULT_DURATION_MAX_SEC,
   zoomMin: "1",
   zoomMax: "1.2",
   speedMin: "0.9",

@@ -12,19 +12,43 @@ type ExportFieldProps = {
   children: ReactNode;
   className?: string;
   title?: string;
+  /** Label left, control right on one row (for compact config cards). */
+  layout?: "stack" | "row";
 };
 
-export function ExportField({ label, children, className, title }: ExportFieldProps) {
+export function ExportField({
+  label,
+  children,
+  className,
+  title,
+  layout = "stack",
+}: ExportFieldProps) {
   const { colors, typography } = APP_DARK_THEME;
+
+  const labelEl = (
+    <span
+      className={cn(
+        "font-semibold uppercase tracking-wider",
+        layout === "row" ? "w-[7.25rem] shrink-0 leading-tight" : "whitespace-nowrap",
+      )}
+      style={{ color: colors.muted, fontSize: typography.sectionLabel }}
+    >
+      {label}
+    </span>
+  );
+
+  if (layout === "row") {
+    return (
+      <div className={cn("flex min-w-0 items-end gap-2", className)} title={title}>
+        {labelEl}
+        <div className="min-w-0 flex-1">{children}</div>
+      </div>
+    );
+  }
 
   return (
     <div className={cn("flex flex-col gap-1.5", className)} title={title}>
-      <span
-        className="whitespace-nowrap font-semibold uppercase tracking-wider"
-        style={{ color: colors.muted, fontSize: typography.sectionLabel }}
-      >
-        {label}
-      </span>
+      {labelEl}
       {children}
     </div>
   );
@@ -126,22 +150,14 @@ export function ExportSelect({
                 </option>
               ) : null}
               {group.options.map((opt) => (
-                <option
-                  key={opt.value}
-                  value={opt.value}
-                  className={optionClass}
-                >
+                <option key={opt.value} value={opt.value} className={optionClass}>
                   {opt.label}
                 </option>
               ))}
             </Fragment>
           ))
         : (options ?? []).map((opt) => (
-            <option
-              key={opt.value}
-              value={opt.value}
-              className={optionClass}
-            >
+            <option key={opt.value} value={opt.value} className={optionClass}>
               {opt.label}
             </option>
           ))}
@@ -164,6 +180,8 @@ type ExportMinMaxProps = {
   inputMode?: "decimal" | "numeric";
   compact?: boolean;
   disabled?: boolean;
+  /** One row: min/max inputs with separator (no separate Min/Max labels). */
+  inline?: boolean;
 };
 
 export function ExportMinMax({
@@ -181,49 +199,68 @@ export function ExportMinMax({
   inputMode = "decimal",
   compact = false,
   disabled = false,
+  inline = false,
 }: ExportMinMaxProps) {
   const { colors, typography } = APP_DARK_THEME;
   const inputSize = compact ? "h-8 px-2 text-xs" : "h-9";
 
-  return (
-    <div className={cn("grid grid-cols-2", compact ? "gap-1.5" : "gap-2")}>
-      <div className="flex min-w-0 flex-col gap-0.5">
+  const minInput = (
+    <Input
+      id={minId}
+      type="number"
+      inputMode={inputMode}
+      step={step}
+      value={minValue}
+      onChange={(e) => onMinChange(e.target.value)}
+      placeholder={minPlaceholder}
+      disabled={disabled}
+      aria-label={minLabel}
+      className={cn(fieldClass, inputSize, "min-w-0")}
+    />
+  );
+
+  const maxInput = (
+    <Input
+      id={maxId}
+      type="number"
+      inputMode={inputMode}
+      step={step}
+      value={maxValue}
+      onChange={(e) => onMaxChange(e.target.value)}
+      placeholder={maxPlaceholder}
+      disabled={disabled}
+      aria-label={maxLabel}
+      className={cn(fieldClass, inputSize, "min-w-0")}
+    />
+  );
+
+  if (inline) {
+    return (
+      <div className={cn("flex min-w-0 items-center", compact ? "gap-1.5" : "gap-2")}>
+        <div className="min-w-0 flex-1">{minInput}</div>
         <span
-          className="text-xs leading-none"
+          className="shrink-0 tabular-nums"
           style={{ color: colors.muted, fontSize: typography.rowMeta }}
+          aria-hidden
         >
-          {minLabel}
+          –
         </span>
-        <Input
-          id={minId}
-          type="number"
-          inputMode={inputMode}
-          step={step}
-          value={minValue}
-          onChange={(e) => onMinChange(e.target.value)}
-          placeholder={minPlaceholder}
-          disabled={disabled}
-          className={cn(fieldClass, inputSize, "min-w-0")}
-        />
+        <div className="min-w-0 flex-1">{maxInput}</div>
       </div>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span
-          className="text-xs leading-none"
-          style={{ color: colors.muted, fontSize: typography.rowMeta }}
-        >
-          {maxLabel}
-        </span>
-        <Input
-          id={maxId}
-          type="number"
-          inputMode={inputMode}
-          step={step}
-          value={maxValue}
-          onChange={(e) => onMaxChange(e.target.value)}
-          placeholder={maxPlaceholder}
-          disabled={disabled}
-          className={cn(fieldClass, inputSize, "min-w-0")}
-        />
+    );
+  }
+
+  return (
+    <div className={cn("flex min-w-0 flex-col", compact ? "gap-1" : "gap-1.5")}>
+      <span
+        className="text-xs leading-none"
+        style={{ color: colors.muted, fontSize: typography.rowMeta }}
+      >
+        {minLabel} – {maxLabel}
+      </span>
+      <div className={cn("grid grid-cols-2", compact ? "gap-1.5" : "gap-2")}>
+        <div className="min-w-0">{minInput}</div>
+        <div className="min-w-0">{maxInput}</div>
       </div>
     </div>
   );

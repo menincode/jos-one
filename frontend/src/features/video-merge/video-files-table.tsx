@@ -80,6 +80,7 @@ export function VideoFilesTable({
           <col className="w-12" />
           <col />
           <col className="w-20" />
+          <col className="w-20" />
           <col className="w-28" />
         </colgroup>
         <thead
@@ -96,7 +97,8 @@ export function VideoFilesTable({
           >
             <th className="px-4 py-3 font-semibold">#</th>
             <th className="px-4 py-3 font-semibold">Tên file</th>
-            <th className="px-4 py-3 text-right font-semibold">Thời gian</th>
+            <th className="px-4 py-3 text-right font-semibold">FFprobe</th>
+            <th className="px-4 py-3 text-right font-semibold">FFmpeg log</th>
             <th className="px-4 py-3 text-right font-semibold">Dung lượng</th>
           </tr>
         </thead>
@@ -104,6 +106,7 @@ export function VideoFilesTable({
           {videos.map((video, index) => {
             const durationPending =
               probingDurations && (video.duration_sec == null || video.duration_sec === undefined);
+            const ffmpegDuration = video.duration_ffmpeg_sec;
 
             return (
               <tr
@@ -146,6 +149,18 @@ export function VideoFilesTable({
                   ) : (
                     <span title={formatDuration(video.duration_sec)}>
                       {formatDuration(video.duration_sec)}
+                    </span>
+                  )}
+                </td>
+                <td
+                  className="px-4 py-3 text-right tabular-nums font-medium"
+                  style={{ color: colors.muted, fontSize: typography.rowMeta }}
+                >
+                  {durationPending ? (
+                    <span className="opacity-50">…</span>
+                  ) : (
+                    <span title={formatDuration(ffmpegDuration)}>
+                      {formatDuration(ffmpegDuration)}
                     </span>
                   )}
                 </td>

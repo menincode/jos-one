@@ -9,6 +9,10 @@ import {
   validateMixRowsForStart,
 } from "@/features/video-merge/mix-row-utils";
 import type { VideoFileItem } from "@/lib/pywebview/types";
+import {
+  getMergeFolderBlockingHint,
+  type MergeFolderValidationState,
+} from "@/features/video-merge/merge-folder-validation";
 import type { VideoMergeJobStatus } from "@/lib/pywebview/types";
 
 export type StartMergeHintParams = {
@@ -16,6 +20,7 @@ export type StartMergeHintParams = {
   settingsLoading: boolean;
   inputFolder: string;
   outputFolder: string;
+  folderValidation: MergeFolderValidationState;
   videos: VideoFileItem[];
   loading: boolean;
   probingDurations: boolean;
@@ -25,16 +30,24 @@ export type StartMergeHintParams = {
   durationMaxSec?: string;
 };
 
-export function getCanOpenOutputFolder(outputFolder: string, settingsLoading: boolean): boolean {
-  return outputFolder.trim().length > 0 && !settingsLoading;
+export function getCanOpenOutputFolder(
+  outputFolder: string,
+  settingsLoading: boolean,
+  folderValidation: MergeFolderValidationState,
+): boolean {
+  return (
+    outputFolder.trim().length > 0 &&
+    !settingsLoading &&
+    folderValidation.outputExists &&
+    !folderValidation.checking
+  );
 }
 
 export function getCanStartMerge(params: StartMergeHintParams): boolean {
   const {
     hydrated,
     settingsLoading,
-    inputFolder,
-    outputFolder,
+    folderValidation,
     videos,
     loading,
     probingDurations,
@@ -44,8 +57,7 @@ export function getCanStartMerge(params: StartMergeHintParams): boolean {
   if (
     !hydrated ||
     settingsLoading ||
-    !inputFolder.trim() ||
-    !outputFolder.trim() ||
+    getMergeFolderBlockingHint(folderValidation) != null ||
     videos.length === 0 ||
     loading ||
     probingDurations ||
