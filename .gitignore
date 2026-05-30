@@ -61,3 +61,20 @@ frontend-dev.log
 
 # Local MCP config (may contain API keys — copy from .cursor/mcp.json.example)
 .cursor/mcp.json
+
+# Duplicate local agent toolkit (committed copy lives under .cursor/)
+.agent/
+
+# Session notes / local scratch
+.claude-session.md
+logs/
+pytest-out.txt
+test.http
+skills-lock.json
+test/
+
+# Root-level scratch assets (product assets live under frontend/public/, packaging/)
+/*.jpg
+/*.webp
+/Screenshot*.png
+/yarn.lock
