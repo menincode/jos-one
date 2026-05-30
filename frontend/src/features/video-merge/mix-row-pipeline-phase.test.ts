@@ -10,13 +10,13 @@ describe("mix-row-pipeline-phase", () => {
         "normalize",
         "Chuẩn hóa · Clip 2/5: a.mp4 · 3.0x · 00:10",
       ),
-    ).toBe("Chuẩn hóa · Clip 2/5");
+    ).toBe("Chuẩn hóa 2/5");
   });
 
-  it("maps concat phase without logo suffix", () => {
+  it("maps concat phase to Ghép video label", () => {
     expect(
-      resolveMixRowPipelineLabel("concat", "Nối video · 2.0x · 00:05"),
-    ).toBe("Nối video");
+      resolveMixRowPipelineLabel("concat", "Ghép video · 2.0x · 00:05"),
+    ).toBe("Ghép video");
   });
 
   it("prefers bridge phase in runningStatusShortLabel", () => {
@@ -25,6 +25,6 @@ describe("mix-row-pipeline-phase", () => {
         "Chuẩn hóa · Clip 1/3: clip.mp4 · 2.0x · 00:01",
         "normalize",
       ),
-    ).toBe("Chuẩn hóa · Clip 1/3");
+    ).toBe("Chuẩn hóa 1/3");
   });
 });

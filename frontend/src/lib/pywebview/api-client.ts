@@ -207,6 +207,7 @@ function createMockClient(): BridgeClient {
       row_states: {},
     }),
     cancelVideoMergeJob: async () => ({ ok: true, message: "" }),
+    resetVideoMergeJobDisplay: async () => ({ ok: true, message: "" }),
     getRemoveWatermarkSettings: async () => ({
       input_folder: "",
       output_folder: "",
@@ -324,6 +325,7 @@ function createRealClient(api: PyWebViewApi): BridgeClient {
       output_folder: string,
       mix_rows: MixRowBridgePayload[],
       export_settings: Record<string, string>,
+      folder_videos?: Array<Record<string, unknown>>,
     ) =>
       call<StartVideoMergeJobResult>(
         "start_video_merge_job",
@@ -331,11 +333,14 @@ function createRealClient(api: PyWebViewApi): BridgeClient {
         output_folder,
         mix_rows,
         export_settings,
+        folder_videos ?? [],
       ),
     getVideoMergeJobStatus: () =>
       call<VideoMergeJobStatusResult>("get_video_merge_job_status"),
     cancelVideoMergeJob: () =>
       call<StartVideoMergeJobResult>("cancel_video_merge_job"),
+    resetVideoMergeJobDisplay: () =>
+      call<StartVideoMergeJobResult>("reset_video_merge_job_display"),
     getRemoveWatermarkSettings: () =>
       call<BridgeRemoveWatermarkSettings>("get_remove_watermark_settings"),
     saveRemoveWatermarkSettings: (

@@ -15,6 +15,7 @@ from python.services.video_merge.io import (
     VIDEO_FILE_TYPES,
     _resolve_initial_directory,
     enrich_videos_with_duration,
+    filter_folder_videos_in_directory,
     list_videos_in_folder,
     open_folder_in_explorer,
     open_media_file,
@@ -240,15 +241,73 @@ def test_enrich_videos_parallel_probe() -> None:
     ]
     ffprobe = Path("/ffprobe")
 
-    def fake_probe(path: str, _probe: Path) -> float | None:
-        return 10.0 if path == "/a.mp4" else 20.0
+    def fake_media(path: str, _probe: Path) -> dict:
+        if path == "/a.mp4":
+            return {
+                "format": {"duration": "10.0"},
+                "streams": [{"codec_type": "video", "width": 1920, "height": 1080}],
+            }
+        return {
+            "format": {"duration": "20.0"},
+            "streams": [{"codec_type": "video", "width": 1280, "height": 720}],
+        }
 
     with patch("python.services.video_merge.io.get_ffprobe_path", return_value=ffprobe):
         with patch(
-            "python.services.video_merge.io.probe_duration_ffprobe",
-            side_effect=fake_probe,
+            "python.services.video_merge.io.probe_media",
+            side_effect=fake_media,
         ):
             enriched = enrich_videos_with_duration(videos, max_workers=2)
 
     assert enriched[0]["duration_sec"] == 10.0
+    assert enriched[0]["width"] == 1920
+    assert enriched[0]["height"] == 1080
     assert enriched[1]["duration_sec"] == 20.0
+    assert enriched[1]["width"] == 1280
+    assert enriched[1]["height"] == 720
+
+
+def test_enrich_videos_skips_complete_metadata() -> None:
+    videos = [
+        {
+            "name": "cached.mp4",
+            "path": "/cached.mp4",
+            "size_bytes": 1,
+            "duration_sec": 12.0,
+            "width": 1920,
+            "height": 1080,
+        },
+        {"name": "b.mp4", "path": "/b.mp4", "size_bytes": 2, "duration_sec": None},
+    ]
+    ffprobe = Path("/ffprobe")
+
+    def fake_media(path: str, _probe: Path) -> dict:
+        assert path == "/b.mp4"
+        return {
+            "format": {"duration": "20.0"},
+            "streams": [{"codec_type": "video", "width": 1280, "height": 720}],
+        }
+
+    with patch("python.services.video_merge.io.get_ffprobe_path", return_value=ffprobe):
+        with patch("python.services.video_merge.io.probe_media", side_effect=fake_media):
+            enriched = enrich_videos_with_duration(videos, max_workers=2)
+
+    assert enriched[0]["duration_sec"] == 12.0
+    assert enriched[1]["duration_sec"] == 20.0
+
+
+def test_filter_folder_videos_in_directory(tmp_path: Path) -> None:
+    root = tmp_path / "in"
+    root.mkdir()
+    video = root / "a.mp4"
+    video.write_bytes(b"x")
+    kept = filter_folder_videos_in_directory(
+        [{"name": "a.mp4", "path": str(video), "size_bytes": 1, "duration_sec": 5.0}],
+        str(root),
+    )
+    assert kept is not None
+    assert kept[0]["duration_sec"] == 5.0
+    assert filter_folder_videos_in_directory(
+        [{"name": "a.mp4", "path": str(tmp_path / "other" / "a.mp4"), "size_bytes": 1}],
+        str(root),
+    ) is None

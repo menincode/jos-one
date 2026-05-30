@@ -142,9 +142,10 @@ def test_smoke_merge_produces_mix_file(
     assert status["status"] == "done", status.get("message")
     assert "Hoàn tất" in status["message"]
 
-    out_file = out / "mix-smoke-row-1.mp4"
+    out_file = Path(status["outputs"][0]["path"])
     assert out_file.is_file()
     assert out_file.stat().st_size > 1000
+    assert out_file.name.startswith("20") and out_file.name.endswith("_a.mp4")
 
     row = status["row_states"]["smoke-row-1"]
     assert row["status"] == "done"

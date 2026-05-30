@@ -31,6 +31,7 @@ from python.services.settings_service import (
 from python.services.video_merge.job import (
     get_video_merge_job_status,
     request_cancel_video_merge,
+    reset_video_merge_job_display,
     start_video_merge_job,
 )
 
@@ -176,6 +177,7 @@ class JsApi(JsApiBase):
         output_folder: str,
         mix_rows: list,
         export_settings: dict,
+        folder_videos: list | None = None,
     ) -> dict[str, str | bool]:
         if not isinstance(input_folder, str) or not isinstance(output_folder, str):
             raise ValueError("start_video_merge_job: folders must be strings")
@@ -183,9 +185,15 @@ class JsApi(JsApiBase):
             raise ValueError("start_video_merge_job: mix_rows must be a list")
         if not isinstance(export_settings, dict):
             raise ValueError("start_video_merge_job: export_settings must be an object")
+        if folder_videos is not None and not isinstance(folder_videos, list):
+            raise ValueError("start_video_merge_job: folder_videos must be a list")
         return self._safe_return(
             start_video_merge_job(
-                input_folder, output_folder, mix_rows, export_settings
+                input_folder,
+                output_folder,
+                mix_rows,
+                export_settings,
+                folder_videos,
             )
         )
 
@@ -194,6 +202,9 @@ class JsApi(JsApiBase):
 
     def cancel_video_merge_job(self) -> dict[str, str | bool]:
         return self._safe_return(request_cancel_video_merge())
+
+    def reset_video_merge_job_display(self) -> dict[str, str | bool]:
+        return self._safe_return(reset_video_merge_job_display())
 
     def get_remove_watermark_settings(self) -> dict[str, str | int]:
         return self._safe_return(get_remove_watermark_settings())

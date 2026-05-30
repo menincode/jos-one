@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, TypedDict
 
 from python.services.plugin_downloader import get_plugins_dir
-from python.services.video_merge import io, pipeline
+from python.services.video_merge import io, mix_output_path, pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ class _RowResult(TypedDict):
     output_duration_sec: float | None
     output_speed_x: float | None
     clip_count: int
+    chaptime: str
 
 
 def register_proc(proc: subprocess.Popen[Any]) -> None:
@@ -110,11 +111,35 @@ def get_video_merge_job_status() -> dict[str, Any]:
         }
 
 
+def reset_video_merge_job_display() -> dict[str, Any]:
+    """Clear per-row merge results from UI (status / export / speed columns)."""
+    with _lock:
+        if _state["status"] == "running":
+            return {
+                "ok": False,
+                "message": "Đang ghép video, không thể làm mới bảng mix.",
+            }
+        _state["status"] = "idle"
+        _state["message"] = ""
+        _state["progress"] = 0
+        _state["total"] = 0
+        _state["outputs"] = []
+        _state["row_states"] = {}
+    return {"ok": True, "message": ""}
+
+
 def _update_row_state(row_id: str, **kwargs: Any) -> None:
     with _lock:
         row = dict(_state["row_states"].get(row_id, {}))
         for key, value in kwargs.items():
-            if value is None and key in ("output_duration_sec", "output_speed_x"):
+            if value is None and key in (
+                "output_duration_sec",
+                "output_speed_x",
+                "mix_clip_count",
+                "mix_total_duration_sec",
+            ):
+                continue
+            if value == "" and key == "chaptime":
                 continue
             row[key] = value
         _state["row_states"][row_id] = row
@@ -152,6 +177,7 @@ def start_video_merge_job(
     output_folder: str,
     mix_rows: list[dict],
     export_settings: dict,
+    folder_videos: list | None = None,
 ) -> dict[str, Any]:
     global _worker_thread
 
@@ -179,7 +205,12 @@ def start_video_merge_job(
             "message": str(listing.get("message", "Không đọc được thư mục đầu vào.")),
         }
 
-    videos = io.enrich_videos_with_duration(listing["videos"])
+    normalized_cache = io.normalize_folder_videos(folder_videos or [])
+    cached_in_folder = io.filter_folder_videos_in_directory(normalized_cache, in_clean)
+    if cached_in_folder:
+        videos = io.enrich_videos_with_duration(cached_in_folder)
+    else:
+        videos = io.enrich_videos_with_duration(listing["videos"])
     plan = pipeline.plan_mix_rows(
         mix_rows,
         videos,
@@ -204,7 +235,13 @@ def start_video_merge_job(
         _state["total"] = total_clips
         _state["outputs"] = []
         _state["row_states"] = {
-            str(r["id"]): {"status": "pending", "message": "", "phase": ""}
+            str(r["id"]): {
+                "status": "pending",
+                "message": "",
+                "phase": "",
+                "mix_clip_count": len(r.get("sequence_paths") or []),
+                "mix_total_duration_sec": r.get("total_duration_sec"),
+            }
             for r in planned_rows
         }
 
@@ -241,6 +278,7 @@ def _run_job(
                     "output_duration_sec": None,
                     "output_speed_x": None,
                     "clip_count": 0,
+                    "chaptime": "",
                 }
 
             row_id = str(row["id"])
@@ -253,7 +291,12 @@ def _run_job(
             )
 
             row_temp = temp_root / f"row_{row_id}"
-            output_path = out_root / f"mix-{row_id}.{config.format_ext}"
+            first_source = sequence[0] if sequence else ""
+            output_path = mix_output_path.resolve_mix_output_path(
+                out_root,
+                first_source,
+                config.format_ext,
+            )
 
             def on_progress(
                 dur: float,
@@ -276,7 +319,7 @@ def _run_job(
                 return is_merge_cancelled()
 
             try:
-                ok, msg, out_dur, out_speed = pipeline.render_mix_row(
+                ok, msg, out_dur, out_speed, chaptime = pipeline.render_mix_row(
                     row_id=row_id,
                     sequence_paths=sequence,
                     export_config=config,
@@ -287,11 +330,12 @@ def _run_job(
                 )
             except Exception as exc:
                 logger.exception("render_mix_row failed row_id=%s", row_id)
-                ok, msg, out_dur, out_speed = (
+                ok, msg, out_dur, out_speed, chaptime = (
                     False,
                     f"Lỗi ghép mix: {exc}",
                     None,
                     None,
+                    "",
                 )
             finally:
                 if row_temp.exists():
@@ -305,6 +349,7 @@ def _run_job(
                 "output_duration_sec": out_dur,
                 "output_speed_x": out_speed,
                 "clip_count": len(sequence),
+                "chaptime": chaptime if ok else "",
             }
 
         workers = max(1, int(getattr(config, "concurrency", 1) or 1))
@@ -348,6 +393,7 @@ def _run_job(
                         message=done_msg,
                         output_duration_sec=out_dur,
                         output_speed_x=out_speed,
+                        chaptime=res.get("chaptime") or "",
                     )
                 else:
                     _update_row_state(

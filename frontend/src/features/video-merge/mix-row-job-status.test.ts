@@ -64,14 +64,14 @@ describe("resolveMixRowDisplay", () => {
       },
       true,
     );
-    expect(display.label).toBe("Chuẩn hóa · Clip 2/5");
+    expect(display.label).toBe("Chuẩn hóa 2/5");
     expect(display.showErrorInfo).toBe(true);
   });
 
   it("shows clip step and detail while running without phase", () => {
     const message =
       "Chuẩn hóa · Clip 2/5: long-name.mp4 · 35.6x · 01:40:01";
-    expect(runningStatusShortLabel(message)).toBe("Chuẩn hóa · Clip 2/5");
+    expect(runningStatusShortLabel(message)).toBe("Chuẩn hóa 2/5");
     const display = resolveMixRowDisplay(
       readyRow,
       0,
@@ -79,7 +79,7 @@ describe("resolveMixRowDisplay", () => {
       { status: "running", message },
       true,
     );
-    expect(display.label).toBe("Chuẩn hóa · Clip 2/5");
+    expect(display.label).toBe("Chuẩn hóa 2/5");
     expect(display.showErrorInfo).toBe(true);
     expect(display.errorMessage).toBe(message);
   });

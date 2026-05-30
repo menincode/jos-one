@@ -52,6 +52,10 @@ export interface VideoFileItem {
   duration_sec: number | null;
   /** Parsed from ``ffmpeg -i`` stderr (Duration: line). */
   duration_ffmpeg_sec?: number | null;
+  /** Video stream width from ffprobe (pixels). */
+  width?: number | null;
+  /** Video stream height from ffprobe (pixels). */
+  height?: number | null;
 }
 
 export interface ListVideosResult {
@@ -104,6 +108,12 @@ export interface VideoMergeRowJobState {
   output_duration_sec?: number | null;
   /** Live FFmpeg encode speed from stderr (``speed=4.41x``). */
   output_speed_x?: number | null;
+  /** Clip count after mix planner (leading + tail). */
+  mix_clip_count?: number | null;
+  /** Sum of source clip durations in planned sequence (seconds). */
+  mix_total_duration_sec?: number | null;
+  /** YouTube-style chapter timestamps for all clips in the mix (after successful merge). */
+  chaptime?: string;
 }
 
 export interface VideoMergeJobOutput {
@@ -194,9 +204,11 @@ export interface PyWebViewApi {
     output_folder: string,
     mix_rows: MixRowBridgePayload[],
     export_settings: Record<string, string>,
+    folder_videos?: Array<Record<string, unknown>>,
   ) => Promise<StartVideoMergeJobResult>;
   get_video_merge_job_status: () => Promise<VideoMergeJobStatusResult>;
   cancel_video_merge_job: () => Promise<StartVideoMergeJobResult>;
+  reset_video_merge_job_display: () => Promise<StartVideoMergeJobResult>;
   get_remove_watermark_settings: () => Promise<BridgeRemoveWatermarkSettings>;
   save_remove_watermark_settings: (
     input_folder: string,
@@ -262,9 +274,11 @@ export interface BridgeClient {
     output_folder: string,
     mix_rows: MixRowBridgePayload[],
     export_settings: Record<string, string>,
+    folder_videos?: Array<Record<string, unknown>>,
   ) => Promise<StartVideoMergeJobResult>;
   getVideoMergeJobStatus: () => Promise<VideoMergeJobStatusResult>;
   cancelVideoMergeJob: () => Promise<StartVideoMergeJobResult>;
+  resetVideoMergeJobDisplay: () => Promise<StartVideoMergeJobResult>;
   getRemoveWatermarkSettings: () => Promise<BridgeRemoveWatermarkSettings>;
   saveRemoveWatermarkSettings: (
     input_folder: string,

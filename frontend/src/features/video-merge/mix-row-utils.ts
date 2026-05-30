@@ -6,6 +6,7 @@ import {
 import type { VideoFileItem } from "@/lib/pywebview/types";
 import {
   buildVideoPathLookup,
+  leadingPathsSemanticallyChanged,
   normalizePathKey,
   resolveCanonicalVideoPath,
 } from "@/features/video-merge/video-path-utils";
@@ -327,9 +328,17 @@ export function setLeadingVideosForRow(
     };
   }
 
-  const nextRows = rows.map((r) =>
-    r.id === rowId ? { ...r, leadingPaths: nextPaths } : r,
-  );
+  const nextRows = rows.map((r) => {
+    if (r.id !== rowId) {
+      return r;
+    }
+    const pathsChanged = leadingPathsSemanticallyChanged(r.leadingPaths, nextPaths);
+    return {
+      ...r,
+      leadingPaths: nextPaths,
+      ...(pathsChanged ? { chaptime: undefined } : {}),
+    };
+  });
   return { ok: true, rows: nextRows };
 }
 

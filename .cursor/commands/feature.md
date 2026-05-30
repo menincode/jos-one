@@ -27,6 +27,17 @@ Implement a complete feature development workflow for: **$ARGUMENTS**
   - `tester` for red-green cycle and regressions
   - `code-reviewer` for gate review
 
+## Engineering Guardrails
+
+**Reference (mandatory)**: `.cursor/commands/_shared-implementation-guardrails.md`
+
+Command-specific:
+
+- **Prefer update over new code** — extend existing feature folders, JsApi methods, and UI flows before creating parallel modules.
+- **Reuse before create** — check `frontend/src/components/common/` and existing Python services/packages first.
+- **Vertical slices** — ship the smallest end-to-end slice that proves value; defer extra abstractions to a follow-up `/refactor` or plan task.
+- **SOLID at boundaries** — keep bridge (JsApi), services, and UI layers with single responsibilities; inject dependencies instead of hard-coding cross-layer calls.
+
 ## Workflow
 
 ### Phase 0: Bootstrap Detection (Before Planning)
@@ -131,7 +142,7 @@ After implementation:
    pytest -v --cov=src
 
    # TypeScript
-   pnpm test
+   yarn --cwd frontend test
    ```
 
 3. **Verify Coverage**

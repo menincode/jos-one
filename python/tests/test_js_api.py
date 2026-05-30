@@ -85,3 +85,28 @@ class TestJsApi:
             result = api.login("test", "wrong")
 
         assert result == {"ok": False, "message": "Username or password is incorrect."}
+
+    def test_start_video_merge_job_accepts_folder_videos_cache(self) -> None:
+        """Regression: FE passes folder_videos as 5th bridge arg after metadata cache."""
+        api = JsApi()
+        cached = [{"file_name": "clip.mp4", "duration_sec": 12.0}]
+        with patch(
+            "python.api.js_api.start_video_merge_job",
+            return_value={"ok": True, "message": ""},
+        ) as start_job:
+            result = api.start_video_merge_job(
+                "/in",
+                "/out",
+                [{"id": "1", "name": "mix"}],
+                {"codec": "h264"},
+                cached,
+            )
+
+        start_job.assert_called_once_with(
+            "/in",
+            "/out",
+            [{"id": "1", "name": "mix"}],
+            {"codec": "h264"},
+            cached,
+        )
+        assert result == {"ok": True, "message": ""}

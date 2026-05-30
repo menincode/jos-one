@@ -4,11 +4,14 @@ export const MIN_LEADING_VIDEOS_PER_ROW = 1;
 export type MixRow = {
   id: string;
   leadingPaths: string[];
+  /** YouTube-style chapter timestamps (all clips in mix), persisted after successful merge. */
+  chaptime?: string;
 };
 
 export type MixRowPayload = {
   id: string;
   leading_paths: string[];
+  chaptime?: string;
 };
 
 export function createEmptyMixRow(): MixRow {
@@ -22,6 +25,7 @@ export function mixRowsToPayload(rows: MixRow[]): MixRowPayload[] {
   return rows.map((row) => ({
     id: row.id,
     leading_paths: [...row.leadingPaths],
+    ...(row.chaptime?.trim() ? { chaptime: row.chaptime.trim() } : {}),
   }));
 }
 
@@ -30,6 +34,15 @@ function readLeadingPaths(item: MixRowPayload & { leadingPaths?: unknown }): str
   const camel = item.leadingPaths;
   const source = Array.isArray(snake) ? snake : Array.isArray(camel) ? camel : [];
   return source.filter((p) => typeof p === "string" && p.trim()).map((p) => p.trim());
+}
+
+function readChaptime(item: MixRowPayload & { chaptime?: unknown }): string | undefined {
+  const raw = item.chaptime;
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 export function mixRowsFromPayload(raw: MixRowPayload[] | undefined): MixRow[] {
@@ -41,6 +54,7 @@ export function mixRowsFromPayload(raw: MixRowPayload[] | undefined): MixRow[] {
     .map((item) => ({
       id: item.id.trim(),
       leadingPaths: readLeadingPaths(item as MixRowPayload & { leadingPaths?: unknown }),
+      chaptime: readChaptime(item as MixRowPayload & { chaptime?: unknown }),
     }));
 }
 

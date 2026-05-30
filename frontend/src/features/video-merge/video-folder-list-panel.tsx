@@ -12,6 +12,10 @@ import { useMemo, useState } from "react";
 import { AppToneButton } from "@/components/common/app-tone-button";
 import { formatBytes } from "@/features/video-merge/format-bytes";
 import { formatDuration } from "@/features/video-merge/format-duration";
+import {
+  formatVideoResolution,
+  isVideoResolutionPending,
+} from "@/features/video-merge/format-video-resolution";
 import type { MixRow } from "@/features/video-merge/mix-row-types";
 import { getVideoMixUsageLabel } from "@/features/video-merge/mix-row-utils";
 import { APP_DARK_THEME } from "@/theme/app-dark-theme";
@@ -39,6 +43,14 @@ function formatVideoMeta(video: VideoFileItem, probingDurations: boolean): strin
     probingDurations && (video.duration_sec == null || video.duration_sec === undefined);
   const durationPart = durationPending ? "…" : formatDuration(video.duration_sec);
   const sizePart = formatBytes(video.size_bytes);
+  const resolution = formatVideoResolution(video);
+  const resolutionPending = isVideoResolutionPending(video, probingDurations);
+  if (resolution) {
+    return `${durationPart} • ${sizePart} • ${resolution}`;
+  }
+  if (resolutionPending) {
+    return `${durationPart} • ${sizePart} • …`;
+  }
   return `${durationPart} • ${sizePart}`;
 }
 
@@ -126,7 +138,7 @@ export function VideoFolderListPanel({
               return (
                 <li
                   key={video.path}
-                  className="flex items-start gap-2 px-3 py-2.5 transition-colors hover:bg-white/[0.03]"
+                  className="flex items-start gap-1.5 px-2 py-2 transition-colors hover:bg-white/[0.03]"
                 >
                   <input
                     type="checkbox"
@@ -159,7 +171,7 @@ export function VideoFolderListPanel({
                   </div>
                   <span
                     className={cn(
-                      "max-w-[11rem] shrink-0 rounded-lg px-2 py-1 text-right text-[0.6875rem] font-medium leading-snug break-words whitespace-normal",
+                      "max-w-[7rem] shrink-0 truncate rounded-lg px-1.5 py-0.5 text-right text-[0.6875rem] font-medium leading-snug",
                       usage ? "text-sky-300" : "text-white/40",
                     )}
                     style={
@@ -167,6 +179,7 @@ export function VideoFolderListPanel({
                         ? { backgroundColor: "rgba(56, 189, 248, 0.12)" }
                         : { backgroundColor: "rgba(255,255,255,0.06)" }
                     }
+                    title={usage ?? "Chưa dùng"}
                   >
                     {usage ?? "Chưa dùng"}
                   </span>

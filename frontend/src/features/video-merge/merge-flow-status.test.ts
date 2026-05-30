@@ -34,6 +34,43 @@ describe("resolveMergeFlowStatus", () => {
     expect(result.style.pulse).toBe(true);
   });
 
+  it("syncs header label with active row concat encode progress", () => {
+    const result = resolveMergeFlowStatus({
+      mergeStatus: "running",
+      canStartMerge: false,
+      jobMessage: "Đang chuẩn bị…",
+      jobProgress: 0,
+      jobTotal: 5,
+      rowJobStates: {
+        "row-1": {
+          status: "running",
+          phase: "concat",
+          message: "Ghép video · 2.5x · 01:23",
+        },
+      },
+    });
+    expect(result.key).toBe("merging");
+    expect(result.label).toBe("Ghép video · 2.5x · 01:23");
+    expect(result.showDetailInfo).toBe(true);
+  });
+
+  it("shows mix_video preparing label from active row state", () => {
+    const result = resolveMergeFlowStatus({
+      mergeStatus: "running",
+      canStartMerge: false,
+      jobMessage: "Đang chuẩn bị…",
+      rowJobStates: {
+        "row-1": {
+          status: "running",
+          phase: "mix_video",
+          message: "Mix video",
+        },
+      },
+    });
+    expect(result.key).toBe("preparing");
+    expect(result.label).toBe("Mix video");
+  });
+
   it("shows short invalid_mix label with detail message", () => {
     const result = resolveMergeFlowStatus({
       mergeStatus: "idle",

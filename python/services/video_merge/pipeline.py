@@ -15,8 +15,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 
+from python.path_display import relativize_ffmpeg_cmd_for_log
 from python.services.plugin_downloader import get_ffmpeg_path, get_ffprobe_path
 from python.services.video_merge.io import ExportRenderConfig, probe_media
+from python.services.video_merge import chapter_timestamps, mix_filter_graph, transition_spec
 
 logger = logging.getLogger(__name__)
 _ffmpeg_log = logging.getLogger("ffmpeg")
@@ -28,9 +30,46 @@ _X264_ARGS_FAST = [
     "-pix_fmt",
     "yuv420p",
     "-preset",
-    "fast",
+    "veryfast",
     "-crf",
     "20",
+]
+# Strip/override source metadata on every exported file (legacy JOS ffmpeg.json parity).
+OUTPUT_METADATA_ARGS = [
+    "-metadata",
+    "album_artist=",
+    "-metadata",
+    "album=",
+    "-metadata",
+    "date=",
+    "-metadata",
+    "track=",
+    "-metadata",
+    "genre=",
+    "-metadata",
+    "publisher=",
+    "-metadata",
+    "encoded_by=",
+    "-metadata",
+    "copyright=",
+    "-metadata",
+    "composer=",
+    "-metadata",
+    "performer=",
+    "-metadata",
+    "TIT1=",
+    "-metadata",
+    "TIT3=",
+    "-metadata",
+    "disc=",
+    "-metadata",
+    "TKEY=",
+    "-metadata",
+    "TBPM=",
+    "-metadata",
+    "language=eng",
+    "-metadata",
+    "encoder=",
 ]
 _NVENC_ARGS_FAST = [
     "-c:v",
@@ -130,7 +169,15 @@ def _win_creationflags() -> int:
 
 
 def _format_ffmpeg_cmd(cmd: list[str]) -> str:
-    return shlex.join(cmd)
+    return shlex.join(relativize_ffmpeg_cmd_for_log(cmd))
+
+
+def log_ffmpeg_command_before_render(label: str, cmd: list[str]) -> None:
+    """Log the full FFmpeg argv immediately before starting a render/concat."""
+    formatted = _format_ffmpeg_cmd(cmd)
+    message = f"{label} — FFmpeg command: {formatted}"
+    logger.info(message)
+    _ffmpeg_log.info(message)
 
 
 @lru_cache(maxsize=8)
@@ -211,7 +258,7 @@ def _video_codec_args(ffmpeg_bin: Path) -> list[str]:
     if _nvenc_usable(str(ffmpeg_bin)):
         _ffmpeg_log.info("Using NVIDIA NVENC encoder (h264_nvenc)")
         return list(_NVENC_ARGS_FAST)
-    _ffmpeg_log.info("Using CPU encoder (libx264 preset=fast)")
+    _ffmpeg_log.info("Using CPU encoder (libx264 preset=veryfast)")
     return list(_X264_ARGS_FAST)
 
 
@@ -246,7 +293,7 @@ def _run_ffmpeg(
     if cancel_check and cancel_check():
         return False, "Đã hủy.", ""
 
-    _ffmpeg_log.info("FFmpeg command: %s", _format_ffmpeg_cmd(cmd))
+    _ffmpeg_log.debug("Starting FFmpeg subprocess")
 
     stderr_chunks: list[str] = []
     stdout_chunks: list[str] = []
@@ -548,11 +595,15 @@ def _build_video_filter_chain(
     source_width: int | None = None,
     source_height: int | None = None,
     source_fps: float | None = None,
+    force_fps: bool = False,
 ) -> str:
     """Build per-clip filter chain.
 
     When source resolution and fps already match export targets, skip ``scale`` to
     target size and ``fps`` — only random zoom (scale by factor) and speed remain.
+
+    Set ``force_fps`` when clip outputs feed ``xfade``/``concat`` in one graph so
+    every branch shares the same CFR timebase (avoids xfade timebase mismatch).
     """
     speed_div = f"{speed:.6f}" if speed > 0 else "1.0"
     skip_target_scale = (
@@ -571,13 +622,24 @@ def _build_video_filter_chain(
         "setpts=PTS-STARTPTS",
         f"scale={scale_w}:{scale_h}",
     ]
-    if not skip_target_scale:
+    # Every segment must share export W×H for concat demuxer -c copy (DS004).
+    if scale_w >= width and scale_h >= height:
+        parts.append(f"crop={width}:{height}:(iw-{width})/2:(ih-{height})/2")
+    else:
+        parts.append(f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black")
+    if force_fps or not skip_target_scale:
         parts.append(f"fps={fps}")
     parts.extend([f"setpts=PTS/{speed_div}", "format=yuv420p"])
     return ",".join(parts)
 
 
-def _build_audio_chain(speed: float, source_dur: float | None) -> str:
+def _build_audio_chain(
+    speed: float,
+    source_dur: float | None,
+    *,
+    audio_in: str = "0:a",
+    audio_out: str = "a",
+) -> str:
     inner: list[str] = []
     if source_dur and source_dur > 0:
         out_dur = source_dur / speed if speed > 0 else source_dur
@@ -586,8 +648,8 @@ def _build_audio_chain(speed: float, source_dur: float | None) -> str:
         inner.append(f"atempo={speed:.6f}")
     inner.append("asetpts=PTS-STARTPTS")
     if inner:
-        return f"[0:a]{','.join(inner)}[a]"
-    return "[0:a]asetpts=PTS-STARTPTS[a]"
+        return f"[{audio_in}]{','.join(inner)}[{audio_out}]"
+    return f"[{audio_in}]asetpts=PTS-STARTPTS[{audio_out}]"
 
 
 def _probe_source_duration(path: str, ffprobe: Path) -> float | None:
@@ -710,10 +772,15 @@ def _render_segment(
             out.extend(AAC_ARGS)
         else:
             out.append("-an")
+        out.extend(OUTPUT_METADATA_ARGS)
         out.append(str(dest))
         return out
 
     cmd = build_cmd(_video_codec_args(ffmpeg_bin))
+    log_ffmpeg_command_before_render(
+        f"Render segment {src.name} → {dest.name}",
+        cmd,
+    )
     ok, msg, log = _run_ffmpeg(cmd, on_stderr_line=on_line, cancel_check=cancel_check)
     if not ok and _nvenc_failure(log, cmd):
         _ffmpeg_log.warning(
@@ -722,6 +789,10 @@ def _render_segment(
         )
         disable_nvenc_runtime()
         cmd = build_cmd(list(_X264_ARGS_FAST))
+        log_ffmpeg_command_before_render(
+            f"Render segment {src.name} → {dest.name} (libx264 fallback)",
+            cmd,
+        )
         ok, msg, _ = _run_ffmpeg(
             cmd, on_stderr_line=on_line, cancel_check=cancel_check
         )
@@ -756,6 +827,7 @@ def _concat_segments(
         str(list_file),
         "-c",
         "copy",
+        *OUTPUT_METADATA_ARGS,
         str(output_path),
     ]
 
@@ -770,8 +842,153 @@ def _concat_segments(
                 _parse_speed_from_log(chunk),
             )
 
+    log_ffmpeg_command_before_render(
+        f"Concat {len(segment_paths)} segments → {output_path.name}",
+        cmd,
+    )
     ok, msg, log = _run_ffmpeg(cmd, on_stderr_line=on_line, cancel_check=cancel_check)
     return ok, msg, log
+
+
+def _xfade_segments(
+    segment_paths: list[Path],
+    output_path: Path,
+    export_config: ExportRenderConfig,
+    ffmpeg_bin: Path,
+    ffprobe_bin: Path,
+    join_plan: chapter_timestamps.JoinTransitionPlan,
+    *,
+    on_progress: Callable[[float | None, float | None], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> tuple[bool, str, str]:
+    """Join normalized segments with chained xfade / acrossfade (re-encode once)."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    durations: list[float] = []
+    for path in segment_paths:
+        probed = _probe_source_duration(str(path), ffprobe_bin)
+        if probed is None or probed <= 0:
+            return False, f"Không đọc được thời lượng segment: {path.name}", ""
+        durations.append(probed)
+
+    has_audio_flags = [_probe_has_audio(str(path), ffprobe_bin) for path in segment_paths]
+    include_audio = all(has_audio_flags)
+    if not include_audio and any(has_audio_flags):
+        logger.info(
+            "Mixed audio segments; joining with video xfade only (no audio track)."
+        )
+
+    transitions = list(join_plan.transitions)
+    transition_durations = list(join_plan.overlaps)
+    if len(transitions) != max(0, len(segment_paths) - 1):
+        return False, "Lỗi cấu hình xfade (số transition không khớp).", ""
+
+    filter_complex = transition_spec.build_xfade_filter_complex(
+        segment_count=len(segment_paths),
+        durations=durations,
+        transitions=transitions,
+        transition_durations=transition_durations,
+        include_audio=include_audio,
+    )
+
+    stderr_acc: list[str] = []
+
+    def on_line(line: str) -> None:
+        stderr_acc.append(line)
+        if on_progress:
+            chunk = "".join(stderr_acc[-20:])
+            on_progress(
+                _parse_duration_from_log(chunk),
+                _parse_speed_from_log(chunk),
+            )
+
+    def build_cmd(codec_args: list[str]) -> list[str]:
+        cmd = [str(ffmpeg_bin), "-y"]
+        for path in segment_paths:
+            cmd.extend(["-i", str(path.resolve())])
+        cmd.extend(["-filter_complex", filter_complex, "-map", "[vout]"])
+        if include_audio:
+            cmd.extend(["-map", "[aout]", *AAC_ARGS])
+        else:
+            cmd.append("-an")
+        cmd.extend(codec_args)
+        cmd.extend(OUTPUT_METADATA_ARGS)
+        cmd.append(str(output_path))
+        return cmd
+
+    cmd = build_cmd(_video_codec_args(ffmpeg_bin))
+    log_ffmpeg_command_before_render(
+        f"Xfade join {len(segment_paths)} segments → {output_path.name}",
+        cmd,
+    )
+    ok, msg, log = _run_ffmpeg(cmd, on_stderr_line=on_line, cancel_check=cancel_check)
+    if not ok and _nvenc_failure(log, cmd):
+        _ffmpeg_log.warning(
+            "NVENC xfade join failed (%s); falling back to libx264",
+            _summarize_ffmpeg_stderr(log) or "nvcuda",
+        )
+        disable_nvenc_runtime()
+        cmd = build_cmd(list(_X264_ARGS_FAST))
+        log_ffmpeg_command_before_render(
+            f"Xfade join {len(segment_paths)} segments → {output_path.name} (libx264 fallback)",
+            cmd,
+        )
+        ok, msg, log = _run_ffmpeg(
+            cmd, on_stderr_line=on_line, cancel_check=cancel_check
+        )
+    return ok, msg, log
+
+
+def _join_segments(
+    segment_paths: list[Path],
+    output_path: Path,
+    export_config: ExportRenderConfig,
+    ffmpeg_bin: Path,
+    ffprobe_bin: Path,
+    rng: random.Random,
+    *,
+    join_plan: chapter_timestamps.JoinTransitionPlan | None = None,
+    on_progress: Callable[[float | None, float | None], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> tuple[bool, str, str]:
+    """Join rendered segments — xfade when configured, otherwise concat copy."""
+    if not segment_paths:
+        return False, "Không có segment để nối.", ""
+    if len(segment_paths) == 1:
+        return _concat_segments(
+            segment_paths,
+            output_path,
+            ffmpeg_bin,
+            on_progress=on_progress,
+            cancel_check=cancel_check,
+        )
+
+    if join_plan is None:
+        durations: list[float] = []
+        for path in segment_paths:
+            probed = _probe_source_duration(str(path), ffprobe_bin)
+            if probed is None or probed <= 0:
+                return False, f"Không đọc được thời lượng segment: {path.name}", ""
+            durations.append(probed)
+        join_plan = chapter_timestamps.resolve_join_plan(durations, export_config, rng)
+
+    if not join_plan.use_xfade:
+        return _concat_segments(
+            segment_paths,
+            output_path,
+            ffmpeg_bin,
+            on_progress=on_progress,
+            cancel_check=cancel_check,
+        )
+    return _xfade_segments(
+        segment_paths,
+        output_path,
+        export_config,
+        ffmpeg_bin,
+        ffprobe_bin,
+        join_plan,
+        on_progress=on_progress,
+        cancel_check=cancel_check,
+    )
 
 
 def _parallel_clip_display_index(
@@ -798,6 +1015,87 @@ def _assign_clip_effects(
     return effects
 
 
+def _probe_clip_for_mix(path: str, ffprobe_bin: Path) -> mix_filter_graph.ClipProbe:
+    source_dur = _probe_source_duration(path, ffprobe_bin)
+    has_audio = _probe_has_audio(path, ffprobe_bin)
+    stream = _probe_video_stream(path, ffprobe_bin)
+    src_w, src_h, src_fps = stream if stream else (None, None, None)
+    return mix_filter_graph.ClipProbe(
+        path=path,
+        source_duration=source_dur,
+        has_audio=has_audio,
+        source_width=src_w,
+        source_height=src_h,
+        source_fps=src_fps,
+    )
+
+
+def _render_mix_unified(
+    *,
+    sequence_paths: list[str],
+    effects: list[tuple[float, float]],
+    export_config: ExportRenderConfig,
+    output_path: Path,
+    ffmpeg_bin: Path,
+    ffprobe_bin: Path,
+    join_plan: chapter_timestamps.JoinTransitionPlan,
+    segment_durations: list[float],
+    probes: list[mix_filter_graph.ClipProbe],
+    on_progress: Callable[[float | None, float | None], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> tuple[bool, str, str]:
+    """Run one FFmpeg command: normalize + logo + join for all clips."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    stderr_acc: list[str] = []
+
+    def on_line(line: str) -> None:
+        stderr_acc.append(line)
+        if on_progress:
+            chunk = "".join(stderr_acc[-20:])
+            on_progress(
+                _parse_duration_from_log(chunk),
+                _parse_speed_from_log(chunk),
+            )
+
+    def build_cmd(codec_args: list[str]) -> list[str]:
+        return mix_filter_graph.build_unified_mix_command(
+            sequence_paths=sequence_paths,
+            effects=effects,
+            export_config=export_config,
+            output_path=output_path,
+            ffmpeg_bin=ffmpeg_bin,
+            join_plan=join_plan,
+            segment_durations=segment_durations,
+            probes=probes,
+            codec_args=codec_args,
+            build_video_filter_chain=_build_video_filter_chain,
+            build_audio_chain=_build_audio_chain,
+            aac_args=AAC_ARGS,
+            output_metadata_args=OUTPUT_METADATA_ARGS,
+        )
+
+    clip_names = ", ".join(Path(path).name for path in sequence_paths[:3])
+    if len(sequence_paths) > 3:
+        clip_names += f", +{len(sequence_paths) - 3}"
+    label = f"Mix {len(sequence_paths)} clips ({clip_names}) → {output_path.name}"
+
+    cmd = build_cmd(_video_codec_args(ffmpeg_bin))
+    log_ffmpeg_command_before_render(label, cmd)
+    ok, msg, log = _run_ffmpeg(cmd, on_stderr_line=on_line, cancel_check=cancel_check)
+    if not ok and _nvenc_failure(log, cmd):
+        _ffmpeg_log.warning(
+            "NVENC unified mix failed (%s); falling back to libx264",
+            _summarize_ffmpeg_stderr(log) or "nvcuda",
+        )
+        disable_nvenc_runtime()
+        cmd = build_cmd(list(_X264_ARGS_FAST))
+        log_ffmpeg_command_before_render(f"{label} (libx264 fallback)", cmd)
+        ok, msg, log = _run_ffmpeg(
+            cmd, on_stderr_line=on_line, cancel_check=cancel_check
+        )
+    return ok, msg, log
+
+
 def render_mix_row(
     *,
     row_id: str,
@@ -807,10 +1105,10 @@ def render_mix_row(
     temp_dir: Path,
     on_progress: Callable[[float, float, str, str], None] | None = None,
     cancel_check: Callable[[], bool],
-) -> tuple[bool, str, float | None, float | None]:
+) -> tuple[bool, str, float | None, float | None, str]:
     binaries = _get_binaries()
     if binaries[0] is None or binaries[1] is None:
-        return False, "Chưa cài FFmpeg/ffprobe. Vui lòng tải plugin trong ứng dụng.", None, None
+        return False, "Chưa cài FFmpeg/ffprobe. Vui lòng tải plugin trong ứng dụng.", None, None, ""
 
     ffmpeg_bin, ffprobe_bin = binaries
     temp_dir.mkdir(parents=True, exist_ok=True)
@@ -837,68 +1135,33 @@ def render_mix_row(
     emit_progress(None, None, "Mix video", ROW_PHASE_MIX_VIDEO)
 
     if cancel_check():
-        return False, "Đã hủy.", last_duration, last_speed
+        return False, "Đã hủy.", last_duration, last_speed, ""
 
-    from python.services.video_merge.ffmpeg_pool import (
-        FfmpegTaskPool,
-        RowClipProgress,
-        SegmentRenderTask,
+    probes: list[mix_filter_graph.ClipProbe] = []
+    for path in sequence_paths:
+        if cancel_check():
+            return False, "Đã hủy.", last_duration, last_speed, ""
+        probes.append(_probe_clip_for_mix(path, ffprobe_bin))
+
+    segment_durations = [
+        mix_filter_graph.effective_segment_duration(probe.source_duration, effects[i][1])
+        for i, probe in enumerate(probes)
+    ]
+    if any(duration <= 0 for duration in segment_durations):
+        return False, "Không đọc được thời lượng clip.", last_duration, last_speed, ""
+
+    join_plan = chapter_timestamps.resolve_join_plan(
+        segment_durations,
+        export_config,
+        rng,
+    )
+    chaptime = chapter_timestamps.build_chapter_text(
+        sequence_paths,
+        segment_durations,
+        join_plan,
     )
 
-    tasks = [
-        SegmentRenderTask(
-            row_id=row_id,
-            clip_index=i,
-            clip_total=n,
-            src_path=sequence_paths[i],
-            dest_path=temp_dir / f"seg_{i:04d}.mp4",
-            zoom=effects[i][0],
-            speed=effects[i][1],
-        )
-        for i in range(n)
-    ]
-    row_progress = RowClipProgress(n)
-
-    def on_clip_progress(
-        clip_idx: int,
-        basename: str,
-        dur: float | None,
-        spd: float | None,
-    ) -> None:
-        mm = int((dur or 0) // 60)
-        ss = int((dur or 0) % 60)
-        speed_s = f"{spd:.1f}x" if spd is not None else "—"
-        emit_progress(
-            dur,
-            spd,
-            f"Chuẩn hóa · Clip {clip_idx}/{n}: {basename} · {speed_s} · {mm:02d}:{ss:02d}",
-            ROW_PHASE_NORMALIZE,
-        )
-
-    workers = max(1, int(getattr(export_config, "concurrency", 1) or 1))
-    with FfmpegTaskPool(max_workers=workers) as pool:
-        results = pool.render_segments(
-            tasks,
-            export_config=export_config,
-            ffmpeg_bin=ffmpeg_bin,
-            ffprobe_bin=ffprobe_bin,
-            row_progress=row_progress,
-            on_clip_progress=on_clip_progress,
-            cancel_check=cancel_check,
-        )
-
-    if cancel_check():
-        return False, "Đã hủy.", last_duration, last_speed
-
-    if any(path is None for path in results):
-        return False, "Lỗi render clip.", last_duration, last_speed
-
-    segment_paths = [path for path in results if path is not None]
-
-    if cancel_check():
-        return False, "Đã hủy.", last_duration, last_speed
-
-    join_label = "Nối video"
+    join_label = "Ghép video"
     emit_progress(None, None, join_label, ROW_PHASE_CONCAT)
 
     def on_join_progress(dur: float | None, speed: float | None) -> None:
@@ -912,15 +1175,21 @@ def render_mix_row(
             ROW_PHASE_CONCAT,
         )
 
-    ok, msg, log = _concat_segments(
-        segment_paths,
-        output_path,
-        ffmpeg_bin,
+    ok, msg, log = _render_mix_unified(
+        sequence_paths=sequence_paths,
+        effects=effects,
+        export_config=export_config,
+        output_path=output_path,
+        ffmpeg_bin=ffmpeg_bin,
+        ffprobe_bin=ffprobe_bin,
+        join_plan=join_plan,
+        segment_durations=segment_durations,
+        probes=probes,
         on_progress=on_join_progress,
         cancel_check=cancel_check,
     )
     if not ok:
-        return False, msg, last_duration, last_speed
+        return False, msg, last_duration, last_speed, ""
 
     final_dur = _parse_duration_from_log(log) or last_duration
     final_speed = _parse_speed_from_log(log) or last_speed
@@ -938,4 +1207,4 @@ def render_mix_row(
             ROW_PHASE_CONCAT,
         )
 
-    return True, "", final_dur, final_speed
+    return True, "", final_dur, final_speed, chaptime

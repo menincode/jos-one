@@ -7,16 +7,23 @@ import {
 } from "@/features/video-merge/mix-output-path";
 
 describe("buildMixOutputFilePath", () => {
-  it("builds Windows-style path", () => {
-    expect(buildMixOutputFilePath("D:\\out\\", "abc-123", "mp4")).toBe(
-      "D:\\out\\mix-abc-123.mp4",
-    );
+  const at = new Date(2026, 4, 30, 14, 7, 0);
+
+  it("builds Windows-style path with timestamp and first video stem", () => {
+    expect(
+      buildMixOutputFilePath("D:\\out\\", "D:\\in\\my-clip.mp4", "mp4", at),
+    ).toBe("D:\\out\\20260530_1407_my-clip.mp4");
   });
 
   it("builds posix path", () => {
-    expect(buildMixOutputFilePath("/tmp/out", "row-1", "mkv")).toBe(
-      "/tmp/out/mix-row-1.mkv",
+    expect(buildMixOutputFilePath("/tmp/out", "/tmp/in/clip.mkv", "mkv", at)).toBe(
+      "/tmp/out/20260530_1407_clip.mkv",
     );
+  });
+
+  it("returns empty when folder or first video missing", () => {
+    expect(buildMixOutputFilePath("", "a.mp4", "mp4", at)).toBe("");
+    expect(buildMixOutputFilePath("/tmp/out", "", "mp4", at)).toBe("");
   });
 });
 
@@ -24,7 +31,12 @@ describe("canPreviewMixRow", () => {
   it("is true when job output succeeded", () => {
     expect(
       canPreviewMixRow("r1", [
-        { row_id: "r1", ok: true, path: "D:\\out\\mix-r1.mp4", message: "" },
+        {
+          row_id: "r1",
+          ok: true,
+          path: "D:\\out\\20260530_1407_a.mp4",
+          message: "",
+        },
       ]),
     ).toBe(true);
   });
@@ -45,7 +57,14 @@ describe("canPreviewMixRow", () => {
     expect(
       canPreviewMixRow(
         "r1",
-        [{ row_id: "r1", ok: true, path: "D:\\out\\mix-r1.mp4", message: "" }],
+        [
+          {
+            row_id: "r1",
+            ok: true,
+            path: "D:\\out\\20260530_1407_a.mp4",
+            message: "",
+          },
+        ],
         { r1: { status: "done", message: "Thời lượng xuất (FFmpeg): 10.0s" } },
       ),
     ).toBe(true);
@@ -71,8 +90,18 @@ describe("resolveMixPreviewPath", () => {
     expect(path).toBe("D:\\out\\custom.mp4");
   });
 
-  it("falls back to default output filename", () => {
-    const path = resolveMixPreviewPath("r2", "D:\\out", "mp4", []);
-    expect(path).toBe("D:\\out\\mix-r2.mp4");
+  it("returns null without job output or first video path", () => {
+    expect(resolveMixPreviewPath("r2", "D:\\out", "mp4", [])).toBeNull();
+  });
+
+  it("falls back to timestamped filename when first video path is provided", () => {
+    const at = new Date(2026, 4, 30, 9, 15, 0);
+    const path = buildMixOutputFilePath(
+      "D:\\out",
+      "D:\\in\\a.mp4",
+      "mp4",
+      at,
+    );
+    expect(path).toBe("D:\\out\\20260530_0915_a.mp4");
   });
 });

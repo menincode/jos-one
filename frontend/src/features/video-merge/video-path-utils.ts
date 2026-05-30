@@ -34,6 +34,15 @@ export function resolveCanonicalVideoPath(
   return lookup.get(key) ?? null;
 }
 
+export function leadingPathsSemanticallyChanged(before: string[], after: string[]): boolean {
+  const beforeKeys = before.map(normalizePathKey).filter(Boolean);
+  const afterKeys = after.map(normalizePathKey).filter(Boolean);
+  if (beforeKeys.length !== afterKeys.length) {
+    return true;
+  }
+  return beforeKeys.some((key, index) => key !== afterKeys[index]);
+}
+
 export type ReconcileMixRowsOptions = {
   /** Remove leading videos already used in an earlier mix row. */
   dedupeAcrossRows?: boolean;
@@ -126,7 +135,13 @@ export function reconcileMixRowsWithVideos(
       changed = true;
     }
 
-    return { ...row, leadingPaths: nextLeading };
+    return {
+      ...row,
+      leadingPaths: nextLeading,
+      ...(leadingPathsSemanticallyChanged(row.leadingPaths, nextLeading)
+        ? { chaptime: undefined }
+        : {}),
+    };
   });
 
   return {

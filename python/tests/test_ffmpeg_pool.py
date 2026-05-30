@@ -30,6 +30,18 @@ def test_row_clip_progress_display_basename() -> None:
     assert progress.display_basename(2, "fallback") == "b.mp4"
 
 
+def test_parallel_progress_label_stays_on_earliest_pending() -> None:
+    """Regression: parallel workers must not flip UI between Clip 1/N and 2/N."""
+    progress = RowClipProgress(16)
+    progress.mark_started(1, "clip-01.mp4")
+    progress.mark_started(2, "clip-02.mp4")
+    assert progress.display_clip_index() == 1
+    # Worker 2 reports progress while worker 1 still running — label stays on clip 1.
+    assert progress.display_clip_index() == 1
+    progress.mark_done(1)
+    assert progress.display_clip_index() == 2
+
+
 def test_render_segments_dispatches_to_pool_workers() -> None:
     calls: list[int] = []
 

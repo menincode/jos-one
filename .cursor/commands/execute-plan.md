@@ -27,6 +27,17 @@ Execute plan from: **$ARGUMENTS**
   - `code-reviewer` for between-task review gates
   - `tester` for test-focused tasks
 
+## Engineering Guardrails
+
+**Reference (mandatory)**: `.cursor/commands/_shared-implementation-guardrails.md`
+
+Command-specific:
+
+- **Task = minimal slice** — each subagent implements only its plan task; no opportunistic refactors across tasks.
+- **Update before create** — before creating a file listed in the plan, verify an existing module cannot be extended.
+- **Review gate checks SOLID/DRY** — code-reviewer flags unnecessary new abstractions, duplicated logic, and scope creep in the task diff only.
+- **Defer extraction** — if DRY extraction spans multiple plan tasks, note it for a dedicated task or `/refactor`; do not expand the current task silently.
+
 ## Methodology
 
 **Reference**: `.cursor/rules/skills/methodology/executing-plans/skill.mdc`
@@ -323,7 +334,7 @@ Before using this command:
 1. Plan file exists and is complete
 2. Plan was created with `/plan --detailed`
 3. Plan has been reviewed and approved
-4. Tests can be run (`npm test` or `pytest`)
+4. Tests can be run (`uv run pytest`, `yarn --cwd frontend test`)
 
 ## Related Commands
 

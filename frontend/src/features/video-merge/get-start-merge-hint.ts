@@ -13,7 +13,10 @@ import {
   getMergeFolderBlockingHint,
   type MergeFolderValidationState,
 } from "@/features/video-merge/merge-folder-validation";
-import type { VideoMergeJobStatus } from "@/lib/pywebview/types";
+import type {
+  VideoMergeJobStatus,
+  VideoMergeRowJobState,
+} from "@/lib/pywebview/types";
 
 export type StartMergeHintParams = {
   hydrated: boolean;
@@ -84,6 +87,7 @@ export function resolveVideoMergeActionStatus(
     jobMessage?: string;
     jobProgress?: number;
     jobTotal?: number;
+    rowJobStates?: Record<string, VideoMergeRowJobState>;
   },
 ) {
   const canStartMerge = getCanStartMerge(params);
@@ -93,6 +97,7 @@ export function resolveVideoMergeActionStatus(
     jobMessage: params.jobMessage,
     jobProgress: params.jobProgress,
     jobTotal: params.jobTotal,
+    rowJobStates: params.rowJobStates,
     canStartMerge,
     startHint,
   };

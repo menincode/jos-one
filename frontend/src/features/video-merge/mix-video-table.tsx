@@ -1,10 +1,20 @@
-import { Eye, GripVertical, Trash2 } from "lucide-react";
+import { Copy, Eye, GripVertical, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   formatDuration,
   formatExportDuration,
   formatExportSpeed,
 } from "@/features/video-merge/format-duration";
+import {
+  formatMixClipCount,
+  mixClipCountForRow,
+  mixTotalDurationForRow,
+} from "@/features/video-merge/mix-row-mix-stats";
+import {
+  canCopyChaptimeForRow,
+  copyChaptimeToClipboard,
+  resolveChaptimeForRow,
+} from "@/features/video-merge/mix-row-chaptime";
 import { MixStatusDetailButton } from "@/features/video-merge/mix-status-detail-button";
 import {
   getMixRowDisplayStyle,
@@ -12,8 +22,8 @@ import {
 } from "@/features/video-merge/mix-row-job-status";
 import type { MixRow } from "@/features/video-merge/mix-row-types";
 import {
-  sumLeadingDuration,
   type MixValidationContext,
+  sumLeadingDuration,
 } from "@/features/video-merge/mix-row-utils";
 import {
   canPreviewMixRow,
@@ -77,7 +87,7 @@ function MixRowStatusCell({
     <div className="flex min-w-0 items-center gap-0.5">
       <span
         className={cn(
-          "inline-flex max-w-[9rem] min-w-0 truncate rounded-full px-2 py-0.5 text-xs font-medium",
+          "inline-flex max-w-[10rem] min-w-0 truncate rounded-full px-2 py-0.5 text-xs font-medium",
           display.pulse && "animate-pulse",
         )}
         style={{ backgroundColor: style.bg, color: style.fg }}
@@ -177,7 +187,7 @@ function formatLeadingFileNames(row: MixRow, videos: VideoFileItem[]): string {
 export function MixVideoTable({
   rows,
   videos,
-  probingDurations: _probingDurations,
+  probingDurations,
   disabled,
   jobActive = false,
   outputFolder = "",
@@ -223,6 +233,7 @@ export function MixVideoTable({
       outputFolder,
       exportFormat,
       jobOutputs,
+      row.leadingPaths[0],
     );
     if (!previewPath) {
       toast.error("Không xác định được đường dẫn file đầu ra.");
@@ -244,6 +255,20 @@ export function MixVideoTable({
     }
   }
 
+  async function handleCopyChaptime(row: MixRow) {
+    const text = resolveChaptimeForRow(row, rowJobStates);
+    if (!text) {
+      toast.error("Chưa có chaptime. Bấm Bắt đầu để ghép mix trước.");
+      return;
+    }
+    const copied = await copyChaptimeToClipboard(text);
+    if (copied) {
+      toast.success("Đã copy chaptime vào clipboard.");
+    } else {
+      toast.error("Không copy được chaptime.");
+    }
+  }
+
   if (videos.length === 0 && rows.length === 0) {
     return (
       <p className="px-4 py-12 text-center text-sm" style={{ color: colors.muted }}>
@@ -260,13 +285,15 @@ export function MixVideoTable({
           <colgroup>
             <col className="w-8" />
             <col className="w-[5.5rem]" />
-            <col className="w-[4.75rem]" />
-            <col />
-            <col className="w-[5.5rem]" />
+            <col className="w-[8rem]" />
+            <col className="w-[3.25rem]" />
             <col className="w-[4.5rem]" />
             <col className="w-[5.5rem]" />
-            <col className="w-[6.5rem]" />
-            <col className="w-[7rem]" />
+            <col className="w-[4.5rem]" />
+            <col className="w-[10rem]" />
+            <col className="w-[4.75rem]" />
+            <col className="w-[5.5rem]" />
+            <col className="w-32" />
           </colgroup>
           <thead>
             <tr
@@ -280,13 +307,15 @@ export function MixVideoTable({
             >
               <th className="w-8 px-2 py-2 font-semibold">#</th>
               <th className="min-w-[5.5rem] px-2 py-2 font-semibold">Tên mix</th>
-              <th className="w-20 px-2 py-2 font-semibold">Số video</th>
-              <th className="min-w-[10rem] px-2 py-2 font-semibold">Tập tin (đầu tiên)</th>
-              <th className="w-24 px-2 py-2 font-semibold">Tổng (đầu)</th>
+              <th className="w-32 px-2 py-2 font-semibold">Tập tin (đầu tiên)</th>
+              <th className="w-14 px-2 py-2 font-semibold">Số video (đầu)</th>
+              <th className="w-20 px-2 py-2 font-semibold">Tổng (đầu)</th>
               <th className="w-24 px-2 py-2 font-semibold">Xuất</th>
               <th className="w-16 px-2 py-2 font-semibold">Speed</th>
-              <th className="px-2 py-2 font-semibold">Trạng thái</th>
-              <th className="w-28 px-2 py-2 text-center font-semibold">Thao tác</th>
+              <th className="min-w-[10rem] px-2 py-2 font-semibold">Trạng thái</th>
+              <th className="w-20 px-2 py-2 font-semibold">Số video</th>
+              <th className="w-24 px-2 py-2 font-semibold">Tổng thời gian</th>
+              <th className="w-32 px-2 py-2 text-center font-semibold">Thao tác</th>
             </tr>
           </thead>
           <tbody>
@@ -302,6 +331,12 @@ export function MixVideoTable({
                 jobOutputs,
                 rowJobStates,
               );
+              const mixClipCount = mixClipCountForRow(row.id, rowJobStates);
+              const mixTotalDuration = mixTotalDurationForRow(
+                row.id,
+                rowJobStates,
+                jobOutputs,
+              );
               const canPreview =
                 outputFolder.trim().length > 0 &&
                 canPreviewMixRow(row.id, jobOutputs, rowJobStates);
@@ -314,6 +349,12 @@ export function MixVideoTable({
                     ? "Chờ mix này ghép xong để xem"
                     : "Ghép video trước để xem đầu ra"
                   : "Chọn thư mục đầu ra trước";
+              const canCopyChaptime = canCopyChaptimeForRow(row, rowJobStates);
+              const chaptimeTitle = canCopyChaptime
+                ? "Copy chaptime (mốc thời gian + tên tất cả file video trong mix)"
+                : jobActive
+                  ? "Chờ mix ghép xong để copy chaptime"
+                  : "Ghép mix trước để copy chaptime";
               const isSelected = selectedRowId === row.id;
 
               return (
@@ -336,23 +377,29 @@ export function MixVideoTable({
                     Mix #{index + 1}
                   </td>
                   <td
-                    className="px-2 py-2 tabular-nums whitespace-nowrap"
-                    style={{ color: colors.muted }}
-                  >
-                    {row.leadingPaths.length} video
-                  </td>
-                  <td
-                    className="max-w-[14rem] truncate px-2 py-2 text-xs"
+                    className="max-w-[8rem] truncate px-2 py-2 text-xs"
                     style={{ color: colors.muted }}
                     title={formatLeadingFileNames(row, videos)}
                   >
                     {formatLeadingFileNames(row, videos)}
                   </td>
                   <td
-                    className="px-2 py-2 tabular-nums text-xs whitespace-nowrap"
-                    style={{ color: colors.foreground }}
+                    className="px-2 py-2 tabular-nums text-center text-xs whitespace-nowrap"
+                    style={{ color: colors.muted }}
+                    title="Số video đầu (leading) trong mix"
                   >
-                    {leadingTotal != null ? formatDuration(leadingTotal) : "—"}
+                    {row.leadingPaths.length > 0 ? row.leadingPaths.length : "—"}
+                  </td>
+                  <td
+                    className="px-2 py-2 tabular-nums text-xs whitespace-nowrap"
+                    style={{ color: colors.muted }}
+                    title="Tổng thời lượng các video đầu (leading)"
+                  >
+                    {leadingTotal != null
+                      ? formatDuration(leadingTotal)
+                      : probingDurations && row.leadingPaths.length > 0
+                        ? "…"
+                        : "—"}
                   </td>
                   <td
                     className="px-2 py-2 tabular-nums text-xs whitespace-nowrap"
@@ -379,11 +426,37 @@ export function MixVideoTable({
                       mixValidation={mixValidation}
                     />
                   </td>
+                  <td
+                    className="px-2 py-2 tabular-nums whitespace-nowrap"
+                    style={{ color: colors.muted }}
+                    title="Số clip trong mix sau planner (leading + tail)"
+                  >
+                    {formatMixClipCount(mixClipCount)}
+                  </td>
+                  <td
+                    className="px-2 py-2 tabular-nums text-xs whitespace-nowrap"
+                    style={{ color: colors.foreground }}
+                    title="Tổng thời lượng mix sau ghép (file xuất khi xong; ước tính khi đang chạy)"
+                  >
+                    {mixTotalDuration != null
+                      ? formatDuration(mixTotalDuration)
+                      : "—"}
+                  </td>
                   <td className="px-1 py-2">
                     <div
                       className="flex items-center justify-center gap-0.5"
                       onClick={(e) => e.stopPropagation()}
                     >
+                      <button
+                        type="button"
+                        className="rounded p-1.5 text-white/55 hover:bg-white/10 hover:text-[var(--app-accent)] disabled:opacity-35"
+                        disabled={disabled || !canCopyChaptime}
+                        title={chaptimeTitle}
+                        aria-label={chaptimeTitle}
+                        onClick={() => void handleCopyChaptime(row)}
+                      >
+                        <Copy className="size-3.5" aria-hidden />
+                      </button>
                       <button
                         type="button"
                         className="rounded p-1.5 text-white/55 hover:bg-white/10 hover:text-[var(--app-accent)] disabled:opacity-35"

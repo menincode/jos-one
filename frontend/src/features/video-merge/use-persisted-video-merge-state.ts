@@ -21,6 +21,7 @@ import {
   persistVideoMergeConfig,
   persistVideoMergeWorkspace,
   preloadAppSettings,
+  readVideoMergeConfigLocalFallback,
 } from "@/lib/settings/app-settings-api";
 import type { VideoMergeConfigSettings } from "@/lib/settings/app-settings-types";
 import { useAuthStore } from "@/stores/auth-store";
@@ -184,9 +185,10 @@ export function usePersistedVideoMergeState() {
         );
       } catch {
         if (!cancelled) {
-          setInputFolder("");
-          setOutputFolder("");
-          setExportSettings(DEFAULT_EXPORT_SETTINGS);
+          const fallback = readVideoMergeConfigLocalFallback();
+          setInputFolder(fallback.input_folder);
+          setOutputFolder(fallback.output_folder);
+          setExportSettings(fallback.export_settings);
         }
       } finally {
         if (!cancelled) {
@@ -209,7 +211,10 @@ export function usePersistedVideoMergeState() {
       if (!skipMixSaveRef.current) {
         persistMixNow();
         flushMixBackendSave();
-        void persistConfigNow();
+        const cfg = latestConfigRef.current;
+        if (cfg.input_folder.trim() || cfg.output_folder.trim()) {
+          void persistConfigNow();
+        }
       }
     };
   }, [

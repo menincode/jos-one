@@ -83,7 +83,33 @@ function normalizeVideos(raw: unknown): VideoFileItem[] {
         : typeof row.duration_sec === "number" && Number.isFinite(row.duration_sec)
           ? row.duration_sec
           : null;
-    items.push({ name, path, size_bytes: size, duration_sec: duration });
+    const durationFfmpeg =
+      row.duration_ffmpeg_sec == null
+        ? undefined
+        : typeof row.duration_ffmpeg_sec === "number" &&
+            Number.isFinite(row.duration_ffmpeg_sec)
+          ? row.duration_ffmpeg_sec
+          : undefined;
+    const width =
+      row.width == null
+        ? undefined
+        : typeof row.width === "number" && Number.isFinite(row.width) && row.width > 0
+          ? row.width
+          : undefined;
+    const height =
+      row.height == null
+        ? undefined
+        : typeof row.height === "number" && Number.isFinite(row.height) && row.height > 0
+          ? row.height
+          : undefined;
+    items.push({
+      name,
+      path,
+      size_bytes: size,
+      duration_sec: duration,
+      ...(durationFfmpeg !== undefined ? { duration_ffmpeg_sec: durationFfmpeg } : {}),
+      ...(width !== undefined && height !== undefined ? { width, height } : {}),
+    });
   }
   return items;
 }

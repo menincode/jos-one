@@ -34,6 +34,52 @@ def test_get_video_merge_job_status_idle_defaults() -> None:
     assert status["row_states"] == {}
 
 
+def test_reset_video_merge_job_display_clears_row_states() -> None:
+    _reset_job_state()
+    with merge_job._lock:  # noqa: SLF001
+        merge_job._state["status"] = "done"  # noqa: SLF001
+        merge_job._state["message"] = "Hoàn tất"  # noqa: SLF001
+        merge_job._state["row_states"] = {  # noqa: SLF001
+            "r1": {
+                "status": "done",
+                "message": "Thời lượng xuất (FFmpeg): 10.0s · speed 2.0x",
+                "output_duration_sec": 10.0,
+                "output_speed_x": 2.0,
+            },
+        }
+        merge_job._state["outputs"] = [  # noqa: SLF001
+            {
+                "row_id": "r1",
+                "ok": True,
+                "output_path": "D:/out/mix1.mp4",
+                "message": "",
+                "output_duration_sec": 10.0,
+                "output_speed_x": 2.0,
+            },
+        ]
+    result = merge_job.reset_video_merge_job_display()
+    assert result["ok"] is True
+    status = merge_job.get_video_merge_job_status()
+    assert status["status"] == "idle"
+    assert status["message"] == ""
+    assert status["row_states"] == {}
+    assert status["outputs"] == []
+
+
+def test_reset_video_merge_job_display_blocks_when_running() -> None:
+    _reset_job_state()
+    with merge_job._lock:  # noqa: SLF001
+        merge_job._state["status"] = "running"  # noqa: SLF001
+        merge_job._state["row_states"] = {  # noqa: SLF001
+            "r1": {"status": "running", "message": "Chuẩn hóa · Clip 1/2"},
+        }
+    result = merge_job.reset_video_merge_job_display()
+    assert result["ok"] is False
+    status = merge_job.get_video_merge_job_status()
+    assert status["status"] == "running"
+    assert "r1" in status["row_states"]
+
+
 def test_request_cancel_marks_pending_and_running_rows() -> None:
     _reset_job_state()
     with merge_job._lock:  # noqa: SLF001
@@ -128,7 +174,7 @@ def test_start_job_success_updates_row_states(tmp_path: Path) -> None:
         cb = kwargs.get("on_progress")
         if cb:
             cb(5.0, 2.0, "Chuẩn hóa · Clip 1/1: a.mp4 · 2.0x · 00:05", "normalize")
-        return True, "", 5.0, 2.0
+        return True, "", 5.0, 2.0, "00:00 a.mp4"
 
     with patch.object(merge_job.io, "list_videos_in_folder") as mock_list:
         mock_list.return_value = {
@@ -143,6 +189,9 @@ def test_start_job_success_updates_row_states(tmp_path: Path) -> None:
                     str(inp), str(out), rows, export
                 )
                 assert started["ok"] is True
+                early = merge_job.get_video_merge_job_status()
+                assert early["row_states"]["r1"].get("mix_clip_count") == 1
+                assert early["row_states"]["r1"].get("mix_total_duration_sec") == 30.0
                 deadline = time.monotonic() + 10.0
                 status = merge_job.get_video_merge_job_status()
                 while status["status"] == "running" and time.monotonic() < deadline:
@@ -152,9 +201,12 @@ def test_start_job_success_updates_row_states(tmp_path: Path) -> None:
     assert status["status"] == "done"
     assert status["row_states"]["r1"]["status"] == "done"
     assert status["row_states"]["r1"].get("output_duration_sec") == 5.0
-    assert (out / "mix-r1.mp4").is_file()
-    expected_path = str((out / "mix-r1.mp4").resolve())
-    assert status["outputs"][0]["path"] == expected_path
+    assert status["row_states"]["r1"].get("chaptime") == "00:00 a.mp4"
+    output_path = Path(status["outputs"][0]["path"])
+    assert output_path.is_file()
+    assert output_path.parent.resolve() == out.resolve()
+    assert output_path.name.startswith("20") and output_path.name.endswith("_a.mp4")
+    assert status["outputs"][0]["path"] == str(output_path.resolve())
     assert Path(status["outputs"][0]["path"]).is_absolute()
 
 
@@ -206,7 +258,7 @@ def test_multi_row_first_output_before_job_done(tmp_path: Path) -> None:
         if row_id == "r2":
             r2_gate.wait(timeout=10.0)
         Path(out_path).write_bytes(b"ok")
-        return True, "", 5.0, 2.0
+        return True, "", 5.0, 2.0, "00:00 a.mp4"
 
     with patch.object(merge_job.io, "list_videos_in_folder") as mock_list:
         mock_list.return_value = {

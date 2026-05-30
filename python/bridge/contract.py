@@ -25,4 +25,5 @@ BRIDGE_METHODS: tuple[str, ...] = (
     "start_video_merge_job",
     "get_video_merge_job_status",
     "cancel_video_merge_job",
+    "reset_video_merge_job_display",
 )

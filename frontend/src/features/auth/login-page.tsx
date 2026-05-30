@@ -20,7 +20,7 @@ import { TypingText } from "@/components/ui/typing-text";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
 
-const { blue, gold, goldHover } = JOSVN_BRAND.colors;
+const { blue } = JOSVN_BRAND.colors;
 
 const loginSchema = z.object({
   username: z.string().min(1, "Nhập tên đăng nhập"),
@@ -211,24 +211,6 @@ export function LoginPage() {
               {submitLabel}
             </button>
           </div>
-
-          <p className="mt-8 text-center text-sm text-[#6B7280]">
-            {JOSVN_LOGIN_COPY.noAccount}{" "}
-            <button
-              type="button"
-              className="font-semibold transition hover:opacity-80"
-              style={{ color: gold }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = goldHover;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = gold;
-              }}
-              onClick={() => toast.info("Tính năng đăng ký sẽ có sớm.")}
-            >
-              {JOSVN_LOGIN_COPY.signUp}
-            </button>
-          </p>
         </div>
       </div>
     </div>

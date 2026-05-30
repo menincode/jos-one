@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  mergeVideosWithCache,
+  videosNeedMetadataProbe,
+} from "@/features/video-merge/video-metadata-cache";
 import { createBridgeClient } from "@/lib/pywebview/api-client";
 import {
   getVideoMergeWorkspaceUserKey,
@@ -10,6 +14,13 @@ import {
 import type { VideoFileItem } from "@/lib/pywebview/types";
 
 const LIST_DEBOUNCE_MS = 400;
+
+function saveFolderVideoCache(folder: string, videos: VideoFileItem[], userKey: string): void {
+  if (!folder.trim() || videos.length === 0) {
+    return;
+  }
+  persistFolderVideosToWorkspace(folder, videos, undefined, userKey);
+}
 
 export function useVideoList(folderPath: string) {
   const [videos, setVideos] = useState<VideoFileItem[]>([]);
@@ -49,15 +60,23 @@ export function useVideoList(folderPath: string) {
         }
         return;
       }
-      setVideos(result.videos);
+
+      const merged = mergeVideosWithCache(result.videos, cached);
+      setVideos(merged);
+      saveFolderVideoCache(trimmed, merged, workspaceKey);
       setLoading(false);
+
+      if (!videosNeedMetadataProbe(merged)) {
+        return;
+      }
 
       setProbingDurations(true);
       const probed = await client.probeVideosInFolder(trimmed);
       if (isStale()) return;
       if (probed.ok) {
-        setVideos(probed.videos);
-        persistFolderVideosToWorkspace(trimmed, probed.videos, undefined, workspaceKey);
+        const probedMerged = mergeVideosWithCache(probed.videos, merged);
+        setVideos(probedMerged);
+        saveFolderVideoCache(trimmed, probedMerged, workspaceKey);
       }
     } catch (err) {
       if (isStale()) return;

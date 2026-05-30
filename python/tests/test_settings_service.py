@@ -84,6 +84,18 @@ def test_video_merge_config_save_preserves_mix_rows(temp_db: Path) -> None:
     assert loaded["mix_rows"] == rows
 
 
+def test_video_merge_save_preserves_folders_when_incoming_empty(temp_db: Path) -> None:
+    svc.save_video_merge_settings(r"D:\in", r"D:\out", {"format": "mp4"})
+    saved = svc.save_video_merge_settings("", "", {"format": "mkv"}, mix_rows=[])
+    assert saved["input_folder"] == r"D:\in"
+    assert saved["output_folder"] == r"D:\out"
+    assert saved["export_settings"]["format"] == "mkv"
+
+    saved_partial = svc.save_video_merge_settings(r"D:\new_in", "", {"format": "mp4"})
+    assert saved_partial["input_folder"] == r"D:\new_in"
+    assert saved_partial["output_folder"] == r"D:\out"
+
+
 def test_remove_watermark_settings_round_trip(temp_db: Path) -> None:
     saved = svc.save_remove_watermark_settings(
         r"D:\watermark\in",

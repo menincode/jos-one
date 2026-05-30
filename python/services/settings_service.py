@@ -142,7 +142,11 @@ def _normalize_mix_rows(raw: Any) -> list[dict[str, str | list[str]]]:
         if not row_id or not isinstance(leading_raw, list):
             continue
         leading_paths = [str(p).strip() for p in leading_raw if str(p).strip()]
-        rows.append({"id": row_id, "leading_paths": leading_paths})
+        row: dict[str, str | list[str]] = {"id": row_id, "leading_paths": leading_paths}
+        chaptime = item.get("chaptime")
+        if isinstance(chaptime, str) and chaptime.strip():
+            row["chaptime"] = chaptime.strip()
+        rows.append(row)
     return rows
 
 
@@ -172,14 +176,31 @@ def get_video_merge_settings() -> dict[str, str | dict[str, str] | list]:
     }
 
 
+def _preserve_folder_path(incoming: str, existing: str) -> str:
+    """Keep stored folder when a partial save sends an empty path (reload/HMR race)."""
+    clean = incoming.strip()
+    if clean:
+        return clean
+    return existing.strip()
+
+
 def save_video_merge_settings(
     input_folder: str,
     output_folder: str,
     export_settings: dict[str, Any],
     mix_rows: list[Any] | None = None,
 ) -> dict[str, str | dict[str, str] | list]:
-    set_setting(KEY_VIDEO_INPUT, input_folder.strip())
-    set_setting(KEY_VIDEO_OUTPUT, output_folder.strip())
+    existing = get_video_merge_settings()
+    in_clean = _preserve_folder_path(
+        input_folder,
+        str(existing.get("input_folder", "")),
+    )
+    out_clean = _preserve_folder_path(
+        output_folder,
+        str(existing.get("output_folder", "")),
+    )
+    set_setting(KEY_VIDEO_INPUT, in_clean)
+    set_setting(KEY_VIDEO_OUTPUT, out_clean)
     normalized = _normalize_export_settings(export_settings)
     set_setting(KEY_VIDEO_EXPORT, json.dumps(normalized, ensure_ascii=False))
     # When mix_rows is omitted (None), keep existing SQLite mix rows (config-only save).

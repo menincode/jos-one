@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ListX, Trash2 } from "lucide-react";
+import { ListX, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppToneButton } from "@/components/common/app-tone-button";
@@ -31,6 +31,7 @@ import { resolveSelectedMixRowId } from "@/features/video-merge/mix-workspace-pe
 import { useMergeFolderValidation } from "@/features/video-merge/use-merge-folder-validation";
 import { MixStatusDetailButton } from "@/features/video-merge/mix-status-detail-button";
 import { APP_DARK_THEME } from "@/theme/app-dark-theme";
+import { cn } from "@/lib/utils";
 import { APP_SCOPES, hasScope } from "@/lib/auth/scopes";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -69,6 +70,8 @@ export function VideoMergePage() {
     jobOutputs,
     start,
     cancel,
+    resetMixJobDisplay,
+    refreshingJobStatus,
   } = useVideoMergeJob();
 
   const [selectedVideoPaths, setSelectedVideoPaths] = useState<Set<string>>(() => new Set());
@@ -156,6 +159,41 @@ export function VideoMergePage() {
     },
     [mixRows, setSelectedMixRowId],
   );
+
+  const syncedChaptimeSignatureRef = useRef("");
+
+  useEffect(() => {
+    if (mergeStatus !== "done") {
+      if (mergeStatus === "idle" || mergeStatus === "running") {
+        syncedChaptimeSignatureRef.current = "";
+      }
+      return;
+    }
+    const parts: string[] = [];
+    for (const row of mixRows) {
+      const chaptime = rowJobStates[row.id]?.chaptime?.trim();
+      if (chaptime) {
+        parts.push(`${row.id}:${chaptime}`);
+      }
+    }
+    if (parts.length === 0) {
+      return;
+    }
+    const signature = parts.join("|");
+    if (signature === syncedChaptimeSignatureRef.current) {
+      return;
+    }
+    syncedChaptimeSignatureRef.current = signature;
+    updateMixRows((rows) =>
+      rows.map((row) => {
+        const chaptime = rowJobStates[row.id]?.chaptime?.trim();
+        if (!chaptime || row.chaptime === chaptime) {
+          return row;
+        }
+        return { ...row, chaptime };
+      }),
+    );
+  }, [mergeStatus, mixRows, rowJobStates, updateMixRows]);
 
   const mixValidation = buildMixValidationContext({
     loading,
@@ -323,6 +361,7 @@ export function VideoMergePage() {
       outputFolder,
       mixRows: rowsForStart,
       exportSettings,
+      folderVideos: videos,
     });
   }
 
@@ -369,7 +408,7 @@ export function VideoMergePage() {
         <WorkspacePanel
           title="Video trong thư mục"
           badge={videoCountLabel}
-          className="col-span-12 lg:col-span-5"
+          className="col-span-12 lg:col-span-4"
           contentClassName="flex min-h-0 flex-col overflow-hidden p-0"
           headerAction={
             <div className="flex shrink-0 items-center gap-2">
@@ -422,21 +461,38 @@ export function VideoMergePage() {
         <WorkspacePanel
           title="Mix Video"
           badge={mixCountLabel}
-          className="col-span-12 lg:col-span-7"
+          className="col-span-12 lg:col-span-8"
           contentClassName="overflow-hidden p-0"
           headerAction={
             hasInputFolder ? (
-              <AppToneButton
-                icon={Trash2}
-                tone="rose"
-                size="sm"
-                showIconBox={false}
-                className="h-8 shrink-0 text-xs"
-                disabled={formDisabled || mixRows.length === 0}
-                onClick={handleClearAllMixRows}
-              >
-                Xóa tất cả
-              </AppToneButton>
+              <div className="flex shrink-0 items-center gap-2">
+                <AppToneButton
+                  icon={RefreshCw}
+                  tone="teal"
+                  size="sm"
+                  showIconBox={false}
+                  className={cn(
+                    "h-8 shrink-0 text-xs",
+                    refreshingJobStatus && "[&_svg]:animate-spin",
+                  )}
+                  disabled={formDisabled || refreshingJobStatus}
+                  title="Làm mới cột trạng thái, xuất và speed trên bảng mix"
+                  onClick={() => void resetMixJobDisplay()}
+                >
+                  Refresh
+                </AppToneButton>
+                <AppToneButton
+                  icon={Trash2}
+                  tone="rose"
+                  size="sm"
+                  showIconBox={false}
+                  className="h-8 shrink-0 text-xs"
+                  disabled={formDisabled || mixRows.length === 0}
+                  onClick={handleClearAllMixRows}
+                >
+                  Xóa tất cả
+                </AppToneButton>
+              </div>
             ) : null
           }
         >

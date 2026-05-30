@@ -20,21 +20,16 @@ Debug issue: **$ARGUMENTS**
 - Preferred skills: `investigate-root-cause`, `evidence-driven-debugging`, `methodology-systematic-debugging`
 - Recommended agent: `investigator`
 
-## Minimal-Change Guardrails (Mandatory)
+## Engineering Guardrails
 
-1. **Debug First, Edit Later**
-   - Do not change code until a root-cause hypothesis is confirmed by evidence.
+**Reference (mandatory)**: `.cursor/commands/_shared-implementation-guardrails.md`
 
-2. **Patch the Fault Line**
-   - Fix only the location that creates the bug.
-   - Avoid broad refactors while debugging.
+Command-specific:
 
-3. **One Bug, One Patch**
-   - Keep the debug fix scoped to the reported issue.
-   - Track additional findings as separate follow-up tasks.
-
-4. **No Silent Scope Creep**
-   - If fix requires touching multiple modules, explain why before editing.
+1. **Debug first, edit later** — do not change code until a root-cause hypothesis is confirmed by evidence.
+2. **Patch the fault line** — fix only the location that creates the bug; prefer updating existing logic over rewriting whole modules.
+3. **One bug, one patch** — keep the fix scoped to the reported issue; track extra findings as follow-up tasks (`/fix`, `/refactor`).
+4. **Reuse existing patterns** — match error handling, logging, and test style from similar fixes in the codebase (DRY).
 
 ## Workflow
 

@@ -37,6 +37,10 @@ Use this matrix to select the best skill(s) and subagent(s) for each command.
 | `/help` | `map-codebase` | `explore` |
 | `/mode` | `methodology-sequential-thinking` | `generalPurpose` |
 
+## Shared Guardrails
+
+Implementation commands (`/feature`, `/debug`, `/execute-plan`) must follow `.cursor/commands/_shared-implementation-guardrails.md` for minimal change, SOLID, and DRY. Command files add role-specific rules only — do not duplicate the shared text.
+
 ## Selection Rules
 
 1. Prefer a dedicated specialist skill before generic skills.

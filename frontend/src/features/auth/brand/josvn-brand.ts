@@ -43,7 +43,5 @@ export const JOSVN_LOGIN_COPY = {
   login: "Đăng nhập",
   signingIn: "Đang đăng nhập…",
   forgotPassword: "Quên mật khẩu?",
-  signUp: "Đăng ký",
-  noAccount: "Chưa có tài khoản?",
   saveAccount: "Lưu tài khoản",
 } as const;

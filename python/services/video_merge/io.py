@@ -62,6 +62,9 @@ class ExportRenderConfig:
     duration_min_sec: float
     duration_max_sec: float
     concurrency: int
+    scene_transition: str = "fade"
+    transition_duration_min_sec: float = 0.4
+    transition_duration_max_sec: float = 0.8
 
 
 def _get_str(data: dict[str, Any], *keys: str, default: str = "") -> str:
@@ -142,6 +145,18 @@ def parse_export_settings(
     concurrency = _parse_int(raw, "concurrency", default=4)
     concurrency = max(1, min(16, concurrency))
 
+    scene_transition = _get_str(
+        raw, "sceneTransition", "scene_transition", default="fade"
+    ).lower()
+    transition_min = _parse_float(
+        raw, "transitionDurationMinSec", "transition_duration_min_sec", default=0.4
+    )
+    transition_max = _parse_float(
+        raw, "transitionDurationMaxSec", "transition_duration_max_sec", default=0.8
+    )
+    if transition_min > transition_max:
+        return None, "Thời lượng chuyển cảnh tối thiểu không được lớn hơn tối đa."
+
     return (
         ExportRenderConfig(
             format_ext=format_ext,
@@ -157,6 +172,9 @@ def parse_export_settings(
             duration_min_sec=duration_min,
             duration_max_sec=duration_max,
             concurrency=concurrency,
+            scene_transition=scene_transition,
+            transition_duration_min_sec=max(0.05, transition_min),
+            transition_duration_max_sec=max(0.05, transition_max),
         ),
         None,
     )
@@ -301,10 +319,7 @@ def probe_media(path: str, ffprobe: Path | None = None) -> dict[str, Any] | None
     return parsed if isinstance(parsed, dict) else None
 
 
-def probe_duration_ffprobe(path: str, ffprobe: Path) -> float | None:
-    meta = probe_media(path, ffprobe)
-    if not meta:
-        return None
+def _duration_from_meta(meta: dict[str, Any]) -> float | None:
     fmt = meta.get("format") or {}
     raw = fmt.get("duration")
     if raw is None:
@@ -313,6 +328,116 @@ def probe_duration_ffprobe(path: str, ffprobe: Path) -> float | None:
         return float(raw)
     except (TypeError, ValueError):
         return None
+
+
+def _video_stream_size_from_meta(meta: dict[str, Any]) -> tuple[int, int] | None:
+    streams = meta.get("streams")
+    if not isinstance(streams, list):
+        return None
+    for stream in streams:
+        if not isinstance(stream, dict) or stream.get("codec_type") != "video":
+            continue
+        try:
+            width = int(stream.get("width") or 0)
+            height = int(stream.get("height") or 0)
+        except (TypeError, ValueError):
+            continue
+        if width > 0 and height > 0:
+            return width, height
+    return None
+
+
+def probe_duration_ffprobe(path: str, ffprobe: Path) -> float | None:
+    meta = probe_media(path, ffprobe)
+    if not meta:
+        return None
+    return _duration_from_meta(meta)
+
+
+def _metadata_complete(item: dict[str, Any]) -> bool:
+    dur = item.get("duration_sec")
+    width = item.get("width")
+    height = item.get("height")
+    try:
+        return (
+            dur is not None
+            and float(dur) > 0
+            and int(width) > 0
+            and int(height) > 0
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def normalize_folder_videos(raw: Any) -> list[dict[str, Any]]:
+    """Normalize bridge payload videos for planner/enrich reuse."""
+    if not isinstance(raw, list):
+        return []
+    items: list[dict[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("path", "")).strip()
+        name = str(entry.get("name", "")).strip()
+        if not path or not name:
+            continue
+        try:
+            size_bytes = int(entry.get("size_bytes") or 0)
+        except (TypeError, ValueError):
+            size_bytes = 0
+        item: dict[str, Any] = {
+            "name": name,
+            "path": path,
+            "size_bytes": max(0, size_bytes),
+            "duration_sec": None,
+        }
+        dur = entry.get("duration_sec")
+        if dur is not None:
+            try:
+                item["duration_sec"] = float(dur)
+            except (TypeError, ValueError):
+                pass
+        ff_dur = entry.get("duration_ffmpeg_sec")
+        if ff_dur is not None:
+            try:
+                item["duration_ffmpeg_sec"] = float(ff_dur)
+            except (TypeError, ValueError):
+                pass
+        for key in ("width", "height"):
+            value = entry.get(key)
+            if value is not None:
+                try:
+                    parsed = int(value)
+                    if parsed > 0:
+                        item[key] = parsed
+                except (TypeError, ValueError):
+                    pass
+        items.append(item)
+    return items
+
+
+def filter_folder_videos_in_directory(
+    videos: list[dict[str, Any]],
+    input_folder: str,
+) -> list[dict[str, Any]] | None:
+    """Keep only videos under ``input_folder``; return None if payload is unusable."""
+    if not videos:
+        return None
+    root = Path(input_folder.strip()).resolve()
+    if not root.is_dir():
+        return None
+    kept: list[dict[str, Any]] = []
+    for item in videos:
+        path_raw = str(item.get("path", "")).strip()
+        if not path_raw:
+            return None
+        try:
+            resolved = Path(path_raw).resolve()
+            resolved.relative_to(root)
+        except (OSError, ValueError):
+            return None
+        kept.append({**item, "path": str(resolved)})
+    return kept if kept else None
 
 
 def enrich_videos_with_duration(
@@ -325,11 +450,20 @@ def enrich_videos_with_duration(
 
     def probe_one(video: dict[str, Any]) -> dict[str, Any]:
         item = dict(video)
+        if _metadata_complete(item):
+            return item
         path = str(item.get("path", ""))
-        duration = probe_duration_ffprobe(path, ffprobe) if path else None
-        item["duration_sec"] = duration
-        if duration is not None:
-            item["duration_ffmpeg_sec"] = duration
+        if path:
+            meta = probe_media(path, ffprobe)
+            if meta:
+                duration = _duration_from_meta(meta)
+                item["duration_sec"] = duration
+                if duration is not None:
+                    item["duration_ffmpeg_sec"] = duration
+                stream_size = _video_stream_size_from_meta(meta)
+                if stream_size is not None:
+                    item["width"] = stream_size[0]
+                    item["height"] = stream_size[1]
         return item
 
     if len(videos) <= 1:

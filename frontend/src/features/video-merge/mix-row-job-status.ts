@@ -5,7 +5,11 @@ import {
   validateMixRowAtIndex,
   type MixRowStatus,
 } from "@/features/video-merge/mix-row-utils";
-import { resolveMixRowPipelineLabel } from "@/features/video-merge/mix-row-pipeline-phase";
+import {
+  formatNormalizeProgressLabel,
+  parseClipProgressFromMessage,
+  resolveMixRowPipelineLabel,
+} from "@/features/video-merge/mix-row-pipeline-phase";
 import type { MixRow } from "@/features/video-merge/mix-row-types";
 import type { VideoFileItem, VideoMergeRowJobState } from "@/lib/pywebview/types";
 
@@ -51,7 +55,6 @@ const JOB_LABELS: Record<Exclude<MixRowDisplayStatus, MixRowStatus>, string> = {
   cancelled: "Đã hủy",
 };
 
-const CLIP_PROGRESS_RE = /Clip\s+(\d+)\/(\d+)/i;
 const MERGE_PROGRESS_RE = /^Ghép\s+clip\s+(\d+)\/(\d+)/i;
 
 /** Short badge text for the status column while a row is encoding. */
@@ -70,14 +73,18 @@ export function runningStatusShortLabel(
     return JOB_LABELS.running;
   }
   const head = trimmed.split(" · ", 1)[0]?.trim() ?? trimmed;
-  const clip = CLIP_PROGRESS_RE.exec(trimmed) ?? CLIP_PROGRESS_RE.exec(head);
+  const clip =
+    parseClipProgressFromMessage(trimmed) ?? parseClipProgressFromMessage(head);
   if (clip) {
-    return `Chuẩn hóa · Clip ${clip[1]}/${clip[2]}`;
+    return formatNormalizeProgressLabel(clip.current, clip.total);
   }
   const phase = head;
   const merge = MERGE_PROGRESS_RE.exec(phase);
   if (merge) {
     return `Ghép ${merge[1]}/${merge[2]}`;
+  }
+  if (/ghép video/i.test(phase)) {
+    return "Ghép video";
   }
   if (/nối video/i.test(phase)) {
     return /logo/i.test(phase) ? "Nối video (thêm logo)" : "Nối video";

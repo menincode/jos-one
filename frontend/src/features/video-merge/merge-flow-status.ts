@@ -6,7 +6,11 @@ import type { MixRow } from "@/features/video-merge/mix-row-types";
 import type { VideoFileItem } from "@/lib/pywebview/types";
 import type { MergeFolderValidationState } from "@/features/video-merge/merge-folder-validation";
 import { getMergeFolderBlockingHint } from "@/features/video-merge/merge-folder-validation";
-import type { VideoMergeJobStatus } from "@/lib/pywebview/types";
+import { runningStatusShortLabel } from "@/features/video-merge/mix-row-job-status";
+import type {
+  VideoMergeJobStatus,
+  VideoMergeRowJobState,
+} from "@/lib/pywebview/types";
 
 /** UI status keys for the Ghép Video action bar (idle setup → job lifecycle). */
 export type MergeFlowStatusKey =
@@ -154,9 +158,64 @@ export type ResolveMergeFlowStatusParams = {
   jobMessage?: string;
   jobProgress?: number;
   jobTotal?: number;
+  rowJobStates?: Record<string, VideoMergeRowJobState>;
   canStartMerge: boolean;
   startHint?: string;
 };
+
+function resolveActiveRowJobState(
+  rowJobStates: Record<string, VideoMergeRowJobState> | undefined,
+): VideoMergeRowJobState | undefined {
+  if (!rowJobStates) {
+    return undefined;
+  }
+  return Object.values(rowJobStates).find((state) => state.status === "running");
+}
+
+function resolveActiveRowRunningDisplay(
+  rowJobStates: Record<string, VideoMergeRowJobState> | undefined,
+): MergeFlowStatusDisplay | null {
+  const activeRow = resolveActiveRowJobState(rowJobStates);
+  if (!activeRow) {
+    return null;
+  }
+
+  const detail = activeRow.message?.trim() ?? "";
+  const phase = activeRow.phase?.trim();
+  const shortLabel = runningStatusShortLabel(detail, phase);
+
+  if (phase === "mix_video" || phase === "processing" || /mix video/i.test(shortLabel)) {
+    return {
+      key: "preparing",
+      label: shortLabel || IDLE_LABELS.preparing!,
+      detailMessage: detail || undefined,
+      showDetailInfo: detail.length > 0,
+      style: MERGE_FLOW_STATUS_STYLES.preparing,
+    };
+  }
+
+  if (phase === "concat" || /ghép video/i.test(shortLabel) || /ghép video/i.test(detail)) {
+    return {
+      key: "merging",
+      label: detail.includes(" · ") ? detail : shortLabel || IDLE_LABELS.merging!,
+      detailMessage: detail && detail !== shortLabel ? detail : undefined,
+      showDetailInfo: detail.length > 0,
+      style: MERGE_FLOW_STATUS_STYLES.merging,
+    };
+  }
+
+  if (shortLabel) {
+    return {
+      key: "merging",
+      label: shortLabel,
+      detailMessage: detail || undefined,
+      showDetailInfo: detail.length > 0,
+      style: MERGE_FLOW_STATUS_STYLES.merging,
+    };
+  }
+
+  return null;
+}
 
 function resolveIdleKey(startHint: string | undefined, canStartMerge: boolean): MergeFlowStatusKey {
   if (canStartMerge) {
@@ -197,10 +256,15 @@ function resolveRunningDisplay(
   jobMessage: string | undefined,
   jobProgress: number,
   jobTotal: number,
+  rowJobStates?: Record<string, VideoMergeRowJobState>,
 ): MergeFlowStatusDisplay {
+  const fromActiveRow = resolveActiveRowRunningDisplay(rowJobStates);
+  if (fromActiveRow) {
+    return fromActiveRow;
+  }
+
   const trimmed = jobMessage?.trim() ?? "";
-  const inPreparing =
-    trimmed.includes("chuẩn bị") || (jobTotal > 0 && jobProgress === 0);
+  const inPreparing = trimmed.includes("chuẩn bị");
 
   if (inPreparing) {
     return {
@@ -233,11 +297,18 @@ function resolveRunningDisplay(
 export function resolveMergeFlowStatus(
   params: ResolveMergeFlowStatusParams,
 ): MergeFlowStatusDisplay {
-  const { mergeStatus, jobMessage, jobProgress = 0, jobTotal = 0, canStartMerge, startHint } =
-    params;
+  const {
+    mergeStatus,
+    jobMessage,
+    jobProgress = 0,
+    jobTotal = 0,
+    rowJobStates,
+    canStartMerge,
+    startHint,
+  } = params;
 
   if (mergeStatus === "running") {
-    return resolveRunningDisplay(jobMessage, jobProgress, jobTotal);
+    return resolveRunningDisplay(jobMessage, jobProgress, jobTotal, rowJobStates);
   }
 
   if (mergeStatus === "done") {

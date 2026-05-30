@@ -228,6 +228,39 @@ function saveRemoveWatermarkToLocalStorage(
   return next;
 }
 
+function mergeVideoMergeFolderPaths(
+  incoming: VideoMergeConfigSettings,
+  existing: Pick<VideoMergeConfigSettings, "input_folder" | "output_folder">,
+): Pick<VideoMergeConfigSettings, "input_folder" | "output_folder"> {
+  return {
+    input_folder: incoming.input_folder.trim() || existing.input_folder.trim(),
+    output_folder: incoming.output_folder.trim() || existing.output_folder.trim(),
+  };
+}
+
+async function readExistingVideoMergeFolders(): Promise<
+  Pick<VideoMergeConfigSettings, "input_folder" | "output_folder">
+> {
+  if (await useSettingsBridge()) {
+    const client = await createBridgeClient();
+    const result = await client.getVideoMergeSettings();
+    return {
+      input_folder: result.input_folder?.trim() ?? "",
+      output_folder: result.output_folder?.trim() ?? "",
+    };
+  }
+  const local = loadVideoMergeConfigFromLocalStorage();
+  return {
+    input_folder: local.input_folder.trim(),
+    output_folder: local.output_folder.trim(),
+  };
+}
+
+/** Local fallback when SQLite/bridge hydrate fails (browser dev or transient errors). */
+export function readVideoMergeConfigLocalFallback(): VideoMergeConfigSettings {
+  return loadVideoMergeConfigFromLocalStorage();
+}
+
 function mergeVideoMergeSettings(
   config: VideoMergeConfigSettings,
   mixRows: MixRowPayload[] | undefined,
@@ -482,9 +515,11 @@ export async function migrateLegacyLoginFromLocalStorage(): Promise<void> {
 export async function persistVideoMergeConfig(
   config: VideoMergeConfigSettings,
 ): Promise<VideoMergeConfigSettings> {
+  const existingFolders = await readExistingVideoMergeFolders();
+  const mergedFolders = mergeVideoMergeFolderPaths(config, existingFolders);
   const payload: VideoMergeConfigSettings = {
-    input_folder: config.input_folder.trim(),
-    output_folder: config.output_folder.trim(),
+    input_folder: mergedFolders.input_folder,
+    output_folder: mergedFolders.output_folder,
     export_settings: normalizeExportSettings(config.export_settings),
   };
 
@@ -534,10 +569,14 @@ export async function persistVideoMergeWorkspace(
     return;
   }
   const config = videoMergeCache ?? (await readVideoMergeConfigResolved());
+  const mergedFolders = mergeVideoMergeFolderPaths(
+    config,
+    await readExistingVideoMergeFolders(),
+  );
   const client = await createBridgeClient();
   await client.saveVideoMergeSettings(
-    config.input_folder,
-    config.output_folder,
+    mergedFolders.input_folder,
+    mergedFolders.output_folder,
     config.export_settings,
     mixRows,
   );

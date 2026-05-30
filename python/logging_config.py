@@ -55,6 +55,10 @@ def setup_logging(*, debug: bool = False) -> None:
     console_handler.setFormatter(formatter)
     root.addHandler(console_handler)
 
+    from python.log_paths import configure_log_paths
+
+    configure_log_paths()
+
     # Suppress chatty third-party loggers
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("webview").setLevel(logging.WARNING)

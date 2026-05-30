@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { mixRowsToPayload, type MixRow } from "@/features/video-merge/mix-row-types";
+import { videosToBridgePayload } from "@/features/video-merge/video-metadata-cache";
 import type { VideoMergeExportSettings } from "@/features/video-merge/video-merge-export-types";
 import { createBridgeClient } from "@/lib/pywebview/api-client";
 import { isPywebviewShell } from "@/lib/pywebview/readiness";
 import type {
+  VideoFileItem,
   VideoMergeJobOutput,
   VideoMergeJobStatus,
   VideoMergeRowJobState,
@@ -18,6 +20,7 @@ type StartMergeParams = {
   outputFolder: string;
   mixRows: MixRow[];
   exportSettings: VideoMergeExportSettings;
+  folderVideos?: VideoFileItem[];
 };
 
 export function useVideoMergeJob() {
@@ -33,6 +36,7 @@ export function useVideoMergeJob() {
   );
   const [jobOutputs, setJobOutputs] = useState<VideoMergeJobOutput[]>([]);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [refreshingJobStatus, setRefreshingJobStatus] = useState(false);
   const statusRef = useRef<VideoMergeJobStatus>("idle");
 
   const applyJobSnapshot = useCallback(
@@ -67,10 +71,14 @@ export function useVideoMergeJob() {
     }
   }, []);
 
+  const fetchJobSnapshot = useCallback(async () => {
+    const client = await createBridgeClient();
+    return client.getVideoMergeJobStatus();
+  }, []);
+
   const pollStatus = useCallback(async () => {
     try {
-      const client = await createBridgeClient();
-      const job = await client.getVideoMergeJobStatus();
+      const job = await fetchJobSnapshot();
       applyJobSnapshot(job);
 
       if (job.status === "running") {
@@ -92,7 +100,7 @@ export function useVideoMergeJob() {
       applyJobSnapshot({ status: "error", message });
       toast.error(message);
     }
-  }, [applyJobSnapshot, stopPolling]);
+  }, [applyJobSnapshot, fetchJobSnapshot, stopPolling]);
 
   const startPolling = useCallback(() => {
     stopPolling();
@@ -101,6 +109,62 @@ export function useVideoMergeJob() {
     }, POLL_MS);
     void pollStatus();
   }, [pollStatus, stopPolling]);
+
+  const refreshJobStatus = useCallback(async () => {
+    if (refreshingJobStatus) {
+      return;
+    }
+    setRefreshingJobStatus(true);
+    try {
+      const job = await fetchJobSnapshot();
+      applyJobSnapshot(job);
+      if (job.status === "running" && pollRef.current === null) {
+        startPolling();
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Không đọc được trạng thái ghép.";
+      toast.error(message);
+    } finally {
+      setRefreshingJobStatus(false);
+    }
+  }, [applyJobSnapshot, fetchJobSnapshot, refreshingJobStatus, startPolling]);
+
+  const resetMixJobDisplay = useCallback(async () => {
+    if (statusRef.current === "running") {
+      toast.error("Đang ghép video, không thể làm mới bảng mix.");
+      return;
+    }
+    if (refreshingJobStatus) {
+      return;
+    }
+    setRefreshingJobStatus(true);
+    try {
+      if (isPywebviewShell()) {
+        const client = await createBridgeClient();
+        const result = await client.resetVideoMergeJobDisplay();
+        if (!result.ok) {
+          toast.error(result.message || "Không làm mới được bảng mix.");
+          return;
+        }
+      }
+      applyJobSnapshot({
+        status: "idle",
+        message: "",
+        progress: 0,
+        total: 0,
+        outputs: [],
+        row_states: {},
+      });
+      toast.success("Đã làm mới bảng mix.");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Không làm mới được bảng mix.";
+      toast.error(message);
+    } finally {
+      setRefreshingJobStatus(false);
+    }
+  }, [applyJobSnapshot, refreshingJobStatus]);
 
   useEffect(() => {
     if (!isPywebviewShell()) {
@@ -122,7 +186,7 @@ export function useVideoMergeJob() {
   }, [applyJobSnapshot, startPolling, stopPolling]);
 
   const start = useCallback(
-    async ({ inputFolder, outputFolder, mixRows, exportSettings }: StartMergeParams) => {
+    async ({ inputFolder, outputFolder, mixRows, exportSettings, folderVideos }: StartMergeParams) => {
       try {
         const client = await createBridgeClient();
 
@@ -141,6 +205,7 @@ export function useVideoMergeJob() {
           outputFolder,
           mixRowsToPayload(mixRows),
           exportSettings,
+          folderVideos?.length ? videosToBridgePayload(folderVideos) : [],
         );
         if (!result.ok) {
           toast.error(result.message || "Không bắt đầu được ghép video.");
@@ -206,5 +271,8 @@ export function useVideoMergeJob() {
     jobOutputs,
     start,
     cancel,
+    refreshJobStatus,
+    resetMixJobDisplay,
+    refreshingJobStatus,
   };
 }
