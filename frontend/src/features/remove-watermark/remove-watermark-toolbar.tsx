@@ -7,10 +7,11 @@ import { cn } from "@/lib/utils";
 type RemoveWatermarkToolbarProps = {
   canOpenOutputFolder: boolean;
   canStart: boolean;
+  loadHint?: string;
+  startHint?: string;
   loadingRows: boolean;
   busy: boolean;
   stopRequested: boolean;
-  hasInputFolder: boolean;
   onLoadVideos: () => void;
   onOpenOutputDir: () => void;
   onStartBatch: () => void;
@@ -20,10 +21,11 @@ type RemoveWatermarkToolbarProps = {
 export function RemoveWatermarkToolbar({
   canOpenOutputFolder,
   canStart,
+  loadHint,
+  startHint,
   loadingRows,
   busy,
   stopRequested,
-  hasInputFolder,
   onLoadVideos,
   onOpenOutputDir,
   onStartBatch,
@@ -63,8 +65,11 @@ export function RemoveWatermarkToolbar({
         size="sm"
         showIconBox={false}
         className={cn("shrink-0", loadingRows && "[&_svg]:animate-spin")}
-        disabled={!hasInputFolder || loadingRows || busy}
-        title="Tải lại danh sách video trong thư mục đầu vào"
+        disabled={loadingRows || busy}
+        title={
+          loadHint ??
+          "Tải lại danh sách video trong thư mục đầu vào"
+        }
         onClick={onLoadVideos}
       >
         Tải danh sách
@@ -79,8 +84,10 @@ export function RemoveWatermarkToolbar({
         style={{
           background: `linear-gradient(135deg, ${colors.headerGradientFrom}, ${colors.headerGradientTo})`,
         }}
-        disabled={!canStart || busy}
-        title={canStart ? "Bắt đầu xóa watermark hàng loạt" : undefined}
+        disabled={busy}
+        title={
+          startHint ?? (canStart ? "Bắt đầu xóa watermark hàng loạt" : undefined)
+        }
         onClick={onStartBatch}
       >
         {busy ? (

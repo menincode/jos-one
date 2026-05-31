@@ -17,6 +17,8 @@ export interface BridgeLoginUser {
   status: boolean;
   notes: string | null;
   created_at: string;
+  /** Auth API scopes when returned by bridge (optional). */
+  scopes?: unknown;
 }
 
 /** Returned by pywebview `login` on expected auth failure (no bridge exception). */
@@ -288,7 +290,7 @@ export interface BridgeClient {
   listWatermarkVideosInFolder: (
     input_folder: string,
     output_folder?: string,
-  ) => Promise<WatermarkVideoRow[]>;
+  ) => Promise<WatermarkVideoRowRecord[]>;
   removeWatermarkBatch: (
     videos: Array<{
       file_name: string;
@@ -296,7 +298,7 @@ export interface BridgeClient {
       output_path: string;
     }>,
     thread_count: number,
-  ) => Promise<WatermarkVideoRow[]>;
+  ) => Promise<WatermarkVideoRowRecord[]>;
   getRemoveWatermarkProgress: () => Promise<WatermarkProgressSnapshot[]>;
   cancelRemoveWatermarkBatch: () => Promise<boolean>;
   call: <T>(method: keyof PyWebViewApi, ...args: unknown[]) => Promise<T>;

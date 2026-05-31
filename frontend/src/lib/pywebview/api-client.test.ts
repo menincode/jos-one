@@ -12,6 +12,7 @@ function stubApi(overrides: Partial<PyWebViewApi> = {}): PyWebViewApi {
     open_folder_dialog: vi.fn(),
     open_input_folder_dialog: vi.fn(),
     open_output_folder_dialog: vi.fn(),
+    validate_merge_folders: vi.fn(),
     list_videos_in_folder: vi.fn(),
     probe_videos_in_folder: vi.fn(),
     open_folder_in_explorer: vi.fn(),
@@ -26,6 +27,13 @@ function stubApi(overrides: Partial<PyWebViewApi> = {}): PyWebViewApi {
     start_video_merge_job: vi.fn(),
     get_video_merge_job_status: vi.fn(),
     cancel_video_merge_job: vi.fn(),
+    reset_video_merge_job_display: vi.fn(),
+    get_remove_watermark_settings: vi.fn(),
+    save_remove_watermark_settings: vi.fn(),
+    list_watermark_videos_in_folder: vi.fn(),
+    remove_watermark_batch: vi.fn(),
+    get_remove_watermark_progress: vi.fn(),
+    cancel_remove_watermark_batch: vi.fn(),
     ...overrides,
   };
 }

@@ -3,6 +3,10 @@ import { Eraser, Eye } from "lucide-react";
 
 import { AppToneButton } from "@/components/common/app-tone-button";
 import { AppPage, WorkspacePanel } from "@/components/layout";
+import {
+  getRemoveWatermarkLoadHint,
+  getRemoveWatermarkStartHint,
+} from "@/features/remove-watermark/remove-watermark-folder-validation";
 import { RemoveWatermarkConfigSection } from "@/features/remove-watermark/remove-watermark-config-section";
 import { RemoveWatermarkToolbar } from "@/features/remove-watermark/remove-watermark-toolbar";
 import { useRemoveWatermarkState } from "@/features/remove-watermark/use-remove-watermark-state";
@@ -58,6 +62,7 @@ export function RemoveWatermarkPage() {
     stopRequested,
     canStart,
     settingsLoading,
+    eligibleRowCount,
     setInputFolder,
     setOutputFolder,
     setThreadCount,
@@ -71,6 +76,19 @@ export function RemoveWatermarkPage() {
   const formDisabled = settingsLoading || busy || !canWrite;
   const hasInputFolder = inputFolder.trim().length > 0;
   const canOpenOutputFolder = outputFolder.trim().length > 0;
+  const loadHint = getRemoveWatermarkLoadHint(
+    inputFolder,
+    outputFolder,
+    loadingRows,
+    busy,
+  );
+  const startHint = getRemoveWatermarkStartHint({
+    settingsLoading,
+    inputFolder,
+    outputFolder,
+    eligibleCount: eligibleRowCount,
+    busy,
+  });
 
   const videoCountLabel = useMemo(() => {
     if (!hasInputFolder || loadingRows) {
@@ -113,10 +131,11 @@ export function RemoveWatermarkPage() {
       <RemoveWatermarkToolbar
         canOpenOutputFolder={canOpenOutputFolder}
         canStart={canStart && canWrite}
+        loadHint={loadHint}
+        startHint={startHint}
         loadingRows={loadingRows}
         busy={busy}
         stopRequested={stopRequested}
-        hasInputFolder={hasInputFolder}
         onLoadVideos={() => void loadVideos(inputFolder)}
         onOpenOutputDir={() => void openOutputDir()}
         onStartBatch={() => void startBatch()}
@@ -145,7 +164,7 @@ export function RemoveWatermarkPage() {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-3 py-10 text-center text-[var(--app-muted)]">
-                    Chọn thư mục đầu vào và bấm Tải danh sách.
+                    Chọn thư mục đầu vào, thư mục đầu ra và bấm Tải danh sách.
                   </td>
                 </tr>
               ) : null}

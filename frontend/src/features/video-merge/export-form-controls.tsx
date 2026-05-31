@@ -165,7 +165,7 @@ export function ExportSelect({
   );
 }
 
-type ExportMinMaxProps = {
+export type ExportMinMaxProps = {
   minId: string;
   maxId: string;
   minLabel?: string;

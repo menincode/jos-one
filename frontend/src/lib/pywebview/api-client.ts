@@ -225,22 +225,26 @@ function createMockClient(): BridgeClient {
     listWatermarkVideosInFolder: async (input_folder: string) => {
       const listed = mockListVideosInFolder(input_folder);
       if (!listed.ok) return [];
-      return listed.videos.map((v) => ({
-        file_name: v.name,
-        input_path: v.path,
-        output_path: `${input_folder.replace(/[/\\]+$/, "")}\\out\\${v.name}`,
-        status: "pending",
-        progress_pct: 0,
-      }));
+      return listed.videos.map((v) =>
+        mapWatermarkRow({
+          file_name: v.name,
+          input_path: v.path,
+          output_path: `${input_folder.replace(/[/\\]+$/, "")}\\out\\${v.name}`,
+          status: "pending",
+          progress_pct: 0,
+        }),
+      );
     },
     removeWatermarkBatch: async (videos) =>
-      videos.map((v) => ({
-        file_name: v.file_name,
-        input_path: v.input_path,
-        output_path: v.output_path,
-        status: "completed",
-        progress_pct: 100,
-      })),
+      videos.map((v) =>
+        mapWatermarkRow({
+          file_name: v.file_name,
+          input_path: v.input_path,
+          output_path: v.output_path,
+          status: "completed",
+          progress_pct: 100,
+        }),
+      ),
     getRemoveWatermarkProgress: async () => [],
     cancelRemoveWatermarkBatch: async () => true,
     call: async <T>() => ({}) as T,

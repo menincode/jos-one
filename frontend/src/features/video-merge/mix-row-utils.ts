@@ -90,7 +90,7 @@ export function validateMixRowAtIndex(
   row: MixRow,
   videos: VideoFileItem[],
   ctx: MixValidationContext,
-  allRows?: MixRow[],
+  _allRows?: MixRow[],
 ): string | null {
   if (ctx.loading || ctx.probingDurations) {
     return null;

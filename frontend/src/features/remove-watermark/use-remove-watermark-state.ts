@@ -6,6 +6,7 @@ import {
   persistRemoveWatermarkSettings,
   preloadAppSettings,
 } from "@/lib/settings/app-settings-api";
+import { getRemoveWatermarkFolderHint } from "@/features/remove-watermark/remove-watermark-folder-validation";
 import { createBridgeClient } from "@/lib/pywebview/api-client";
 import type { WatermarkVideoRowRecord } from "@/lib/pywebview/types";
 import { useAuthStore } from "@/stores/auth-store";
@@ -85,11 +86,12 @@ export function useRemoveWatermarkState() {
 
   const loadVideos = useCallback(
     async (folder: string) => {
-      const trimmed = folder.trim();
-      if (!trimmed) {
-        toast.error("Chọn thư mục video đầu vào.");
+      const folderHint = getRemoveWatermarkFolderHint(folder, outputFolder);
+      if (folderHint) {
+        toast.error(folderHint);
         return;
       }
+      const trimmed = folder.trim();
       setLoadingRows(true);
       try {
         const client = await createBridgeClient();
@@ -114,13 +116,17 @@ export function useRemoveWatermarkState() {
   useEffect(() => {
     if (!hydrated || autoLoadedRef.current) return;
     autoLoadedRef.current = true;
-    const restored = inputFolder.trim();
-    if (!restored) return;
-    void loadVideos(restored);
-  }, [hydrated, inputFolder, loadVideos]);
+    const restoredInput = inputFolder.trim();
+    const restoredOutput = outputFolder.trim();
+    if (!restoredInput || !restoredOutput) return;
+    void loadVideos(restoredInput);
+  }, [hydrated, inputFolder, outputFolder, loadVideos]);
 
+  const hasInputFolder = inputFolder.trim().length > 0;
+  const hasOutputFolder = outputFolder.trim().length > 0;
   const eligibleRows = rows.filter((row) => isRowEligible(row.status));
-  const canStart = eligibleRows.length > 0 && !busy;
+  const canStart =
+    hasInputFolder && hasOutputFolder && eligibleRows.length > 0 && !busy;
 
   const applyProgress = useCallback(
     (snapshot: Array<{ input_path: string; progress_pct: number }>) => {
@@ -153,6 +159,15 @@ export function useRemoveWatermarkState() {
   );
 
   const startBatch = useCallback(async () => {
+    const folderHint = getRemoveWatermarkFolderHint(inputFolder, outputFolder);
+    if (folderHint) {
+      toast.error(folderHint);
+      return;
+    }
+    if (eligibleRows.length === 0) {
+      toast.error("Tải danh sách video trước khi xóa watermark.");
+      return;
+    }
     if (!canStart) return;
     const batch = eligibleRows;
     const threads = Math.max(1, Math.min(32, Math.floor(threadCount || 1)));
@@ -210,7 +225,7 @@ export function useRemoveWatermarkState() {
       stopRequestedRef.current = false;
       setStopRequested(false);
     }
-  }, [applyProgress, canStart, eligibleRows, threadCount]);
+  }, [applyProgress, canStart, eligibleRows, inputFolder, outputFolder, threadCount]);
 
   const stopBatch = useCallback(async () => {
     if (!busy || stopRequestedRef.current) return;
@@ -241,7 +256,7 @@ export function useRemoveWatermarkState() {
   const openOutputDir = useCallback(async () => {
     const path = outputFolder.trim();
     if (!path) {
-      toast.error("Chọn thư mục đầu ra.");
+      toast.error("Chọn thư mục đầu ra");
       return;
     }
     try {
@@ -286,6 +301,7 @@ export function useRemoveWatermarkState() {
     busy,
     stopRequested,
     canStart,
+    eligibleRowCount: eligibleRows.length,
     setInputFolder,
     setOutputFolder,
     setThreadCount,

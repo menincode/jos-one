@@ -289,7 +289,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "pillow" },
     { name = "playwright" },
     { name = "pyautogui" },
     { name = "pygetwindow" },
@@ -306,7 +305,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "pillow", specifier = ">=10.0" },
     { name = "playwright", specifier = ">=1.49" },
     { name = "pyautogui", specifier = ">=0.9.54" },
     { name = "pygetwindow", specifier = ">=0.0.9" },

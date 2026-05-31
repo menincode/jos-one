@@ -52,6 +52,7 @@ endif
 UV_SYNC ?= $(UV) sync --group dev
 UV_RUN ?= $(UV) run
 APP_BIN := dist/$(APP_NAME)$(EXE_EXT)
+ICON_ASSET := packaging/assets/josvn-icon.ico
 UPX ?= upx
 UPX_FLAGS ?=
 
@@ -123,18 +124,27 @@ build-icon: sync-uv
 
 build: package
 
-package: install deps-frontend-build build-icon package-pyinstaller package-upx
+package: install deps-frontend-build package-pyinstaller package-upx
 
-package-pyinstaller: sync-uv build-icon
+package-pyinstaller: sync-uv deps-frontend-build
+ifeq ($(OS),Windows_NT)
+	@if not exist "$(ICON_ASSET)" (echo Missing icon: $(ICON_ASSET) && exit /b 1)
+else
+	@test -f "$(ICON_ASSET)" || (echo "Missing icon: $(ICON_ASSET)" && exit 1)
+endif
 	$(UV_RUN) pyinstaller packaging/pyinstaller.spec \
 		--distpath dist --workpath build --noconfirm
-ifeq ($(wildcard $(APP_BIN)),)
-	$(error Expected onefile: $(APP_BIN))
+ifeq ($(OS),Windows_NT)
+	@if not exist "$(APP_BIN)" (echo Expected onefile: $(APP_BIN) && exit /b 1)
+else
+	@test -f "$(APP_BIN)" || (echo "Expected onefile: $(APP_BIN)" && exit 1)
 endif
 
 package-upx:
-ifeq ($(wildcard $(APP_BIN)),)
-	$(error Run package-pyinstaller first — missing $(APP_BIN))
+ifeq ($(OS),Windows_NT)
+	@if not exist "$(APP_BIN)" (echo Run package-pyinstaller first — missing $(APP_BIN) && exit /b 1)
+else
+	@test -f "$(APP_BIN)" || (echo "Run package-pyinstaller first — missing $(APP_BIN)" && exit 1)
 endif
 ifneq ($(HAS_UPX),1)
 	@echo UPX not on PATH — skipping compression. Install UPX 4.x or set UPX=path\to\upx.exe

@@ -1,5 +1,6 @@
 import { formatLoginError } from "@/lib/auth/login-errors";
 import { signInWithUsernameHttp } from "@/lib/auth/login-http";
+import { parseScopes } from "@/lib/auth/scopes";
 import { createBridgeClient } from "@/lib/pywebview/api-client";
 import { isPywebviewShell } from "@/lib/pywebview/readiness";
 import type { AppUser } from "@/types/app-user";
@@ -12,7 +13,16 @@ export async function signInWithUsername(
   try {
     if (isPywebviewShell()) {
       const client = await createBridgeClient();
-      return await client.login(username, password);
+      const user = await client.login(username, password);
+      return {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        status: user.status,
+        notes: user.notes,
+        created_at: user.created_at,
+        scopes: parseScopes(user.scopes),
+      };
     }
     return await signInWithUsernameHttp(username, password);
   } catch (error) {
