@@ -189,6 +189,7 @@ def get_plugin_dir(plugin_id: str) -> Path:
 
 
 def get_plugin_executable(plugin_id: str, executable_key: str) -> Optional[Path]:
+    """Resolve a plugin binary only from the app plugins directory (never system PATH)."""
     plugin = REGISTERED_PLUGINS.get(plugin_id)
     if plugin is None:
         return None
@@ -197,13 +198,9 @@ def get_plugin_executable(plugin_id: str, executable_key: str) -> Optional[Path]
     if spec is None:
         return None
 
-    found = shutil.which(spec.filename())
-    if found:
-        return Path(found)
-
     candidate = get_plugin_dir(plugin_id) / spec.filename()
     if candidate.is_file():
-        return candidate
+        return candidate.resolve()
     return None
 
 
@@ -406,7 +403,7 @@ def _run_startup_plugin_downloads(plugin_ids: list[str]) -> None:
     success = download_plugins(plugin_ids)
     if not success:
         logger.warning(
-            "Some plugins failed to download; check PATH or retry on next launch"
+            "Some plugins failed to download; retry on next launch or install manually under plugins/"
         )
 
 

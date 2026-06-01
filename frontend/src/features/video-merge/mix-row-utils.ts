@@ -272,7 +272,7 @@ export function buildMixValidationContext(params: {
   };
 }
 
-/** Returns `Đã dùng: Mix #N` (or multiple mix numbers) when path is a leading video. */
+/** Returns `Mix #N` (or multiple mix numbers) when path is a leading video. */
 export function getVideoMixUsageLabel(path: string, mixRows: MixRow[]): string | null {
   const pathKey = normalizePathKey(path);
   const mixNumbers: number[] = [];
@@ -288,9 +288,9 @@ export function getVideoMixUsageLabel(path: string, mixRows: MixRow[]): string |
     return null;
   }
   if (mixNumbers.length === 1) {
-    return `Đã dùng: Mix #${mixNumbers[0]}`;
+    return `Mix #${mixNumbers[0]}`;
   }
-  return `Đã dùng: Mix #${mixNumbers.join(", #")}`;
+  return `Mix #${mixNumbers.join(", #")}`;
 }
 
 export type SetMixRowLeadingVideosResult =

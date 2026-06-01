@@ -406,7 +406,7 @@ export function VideoMergePage() {
 
       <div className="grid min-h-0 flex-1 grid-cols-12 gap-2">
         <WorkspacePanel
-          title="Video trong thư mục"
+          title="Video"
           badge={videoCountLabel}
           className="col-span-12 lg:col-span-4"
           contentClassName="flex min-h-0 flex-col overflow-hidden p-0"

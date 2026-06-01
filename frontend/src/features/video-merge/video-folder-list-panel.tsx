@@ -130,63 +130,100 @@ export function VideoFolderListPanel({
             {search.trim() ? "Không tìm thấy video phù hợp." : "Không có file video trong thư mục này."}
           </p>
         ) : (
-          <ul className="divide-y" style={{ borderColor: colors.border }}>
-            {pageVideos.map((video) => {
-              const usage = getVideoMixUsageLabel(video.path, mixRows);
-              const checked = selectedPaths.has(video.path);
+          <table className="w-full table-fixed border-collapse text-left text-sm">
+            <colgroup>
+              <col className="w-8" />
+              <col />
+              <col className="w-[7.5rem]" />
+            </colgroup>
+            <thead>
+              <tr
+                className="sticky top-0 z-[1] border-b uppercase tracking-wider backdrop-blur-sm"
+                style={{
+                  borderColor: colors.border,
+                  color: colors.muted,
+                  fontSize: typography.sectionLabel,
+                  backgroundColor: colors.surface,
+                }}
+              >
+                <th className="px-2 py-2 font-semibold" scope="col">
+                  <span className="sr-only">Chọn</span>
+                </th>
+                <th className="px-2 py-2 font-semibold" scope="col">
+                  Video
+                </th>
+                <th className="px-2 py-2 text-right font-semibold" scope="col">
+                  Đã dùng
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageVideos.map((video) => {
+                const usage = getVideoMixUsageLabel(video.path, mixRows);
+                const checked = selectedPaths.has(video.path);
 
-              return (
-                <li
-                  key={video.path}
-                  className="flex items-start gap-1.5 px-2 py-2 transition-colors hover:bg-white/[0.03]"
-                >
-                  <input
-                    type="checkbox"
-                    className="mt-1 size-3.5 shrink-0 accent-[var(--app-accent)]"
-                    checked={checked}
-                    disabled={disabled}
-                    onChange={() => onToggleSelect(video.path)}
-                    aria-label={`Chọn ${video.name}`}
-                  />
-                  <span
-                    className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
-                    style={{ backgroundColor: "rgba(29, 185, 195, 0.12)" }}
+                return (
+                  <tr
+                    key={video.path}
+                    className="border-b transition-colors hover:bg-white/[0.03]"
+                    style={{ borderColor: colors.border }}
                   >
-                    <Film className="size-4" style={{ color: colors.accent }} aria-hidden />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p
-                      className="truncate font-medium"
-                      style={{ color: colors.foreground, fontSize: typography.rowLabel }}
-                      title={video.name}
-                    >
-                      {video.name}
-                    </p>
-                    <p
-                      className="mt-0.5 text-xs tabular-nums"
-                      style={{ color: colors.muted }}
-                    >
-                      {formatVideoMeta(video, probingDurations)}
-                    </p>
-                  </div>
-                  <span
-                    className={cn(
-                      "max-w-[7rem] shrink-0 truncate rounded-lg px-1.5 py-0.5 text-right text-[0.6875rem] font-medium leading-snug",
-                      usage ? "text-sky-300" : "text-white/40",
-                    )}
-                    style={
-                      usage
-                        ? { backgroundColor: "rgba(56, 189, 248, 0.12)" }
-                        : { backgroundColor: "rgba(255,255,255,0.06)" }
-                    }
-                    title={usage ?? "Chưa dùng"}
-                  >
-                    {usage ?? "Chưa dùng"}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+                    <td className="px-2 py-2 align-top">
+                      <input
+                        type="checkbox"
+                        className="mt-1 size-3.5 shrink-0 accent-[var(--app-accent)]"
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={() => onToggleSelect(video.path)}
+                        aria-label={`Chọn ${video.name}`}
+                      />
+                    </td>
+                    <td className="max-w-0 overflow-hidden px-2 py-2">
+                      <div className="flex min-w-0 items-start gap-2">
+                        <span
+                          className="flex size-8 shrink-0 items-center justify-center rounded-lg"
+                          style={{ backgroundColor: "rgba(29, 185, 195, 0.12)" }}
+                        >
+                          <Film className="size-4" style={{ color: colors.accent }} aria-hidden />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p
+                            className="truncate font-medium"
+                            style={{ color: colors.foreground, fontSize: typography.rowLabel }}
+                            title={video.name}
+                          >
+                            {video.name}
+                          </p>
+                          <p
+                            className="mt-0.5 text-xs tabular-nums"
+                            style={{ color: colors.muted }}
+                          >
+                            {formatVideoMeta(video, probingDurations)}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-2 py-2 align-top text-right">
+                      <span
+                        className={cn(
+                          "inline-block max-w-full truncate rounded-lg px-1.5 py-0.5 text-[0.6875rem] font-medium leading-snug",
+                          usage ? "text-sky-300" : "text-white/40",
+                        )}
+                        style={
+                          usage
+                            ? { backgroundColor: "rgba(56, 189, 248, 0.12)" }
+                            : { backgroundColor: "rgba(255,255,255,0.06)" }
+                        }
+                        title={usage ?? "Chưa dùng"}
+                      >
+                        {usage ?? "Chưa dùng"}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         )}
       </div>
 

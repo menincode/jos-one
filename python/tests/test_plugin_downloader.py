@@ -22,14 +22,34 @@ class TestPaths:
         with patch.object(pd.sys, "frozen", False, create=True):
             assert pd.get_plugin_dir("ffmpeg") == pd.REPO_ROOT / "plugins"
 
-    def test_get_ffmpeg_path_prefers_local(self, tmp_path: Path) -> None:
-        plugin_dir = tmp_path / "ffmpeg"
+    def test_get_ffmpeg_path_uses_plugin_dir(self, tmp_path: Path) -> None:
+        plugin_dir = tmp_path / "plugins"
         plugin_dir.mkdir()
         binary = plugin_dir / "ffmpeg.exe"
         binary.write_bytes(b"")
         with patch.object(pd, "get_plugin_dir", return_value=plugin_dir):
-            with patch.object(pd.shutil, "which", return_value=None):
-                assert pd.get_ffmpeg_path() == binary
+            assert pd.get_ffmpeg_path() == binary.resolve()
+
+    def test_get_ffmpeg_path_ignores_system_path(self, tmp_path: Path) -> None:
+        plugin_dir = tmp_path / "plugins"
+        plugin_dir.mkdir()
+        bundled = plugin_dir / "ffmpeg.exe"
+        bundled.write_bytes(b"bundled")
+        system_ffmpeg = tmp_path / "system" / "ffmpeg.exe"
+        system_ffmpeg.parent.mkdir(parents=True)
+        system_ffmpeg.write_bytes(b"system")
+        with patch.object(pd, "get_plugin_dir", return_value=plugin_dir):
+            with patch.object(pd.shutil, "which", return_value=str(system_ffmpeg)):
+                assert pd.get_ffmpeg_path() == bundled.resolve()
+
+    def test_get_ffmpeg_path_none_without_plugin_binary(self, tmp_path: Path) -> None:
+        plugin_dir = tmp_path / "plugins"
+        plugin_dir.mkdir()
+        with patch.object(pd, "get_plugin_dir", return_value=plugin_dir):
+            with patch.object(
+                pd.shutil, "which", return_value=str(tmp_path / "ffmpeg.exe")
+            ):
+                assert pd.get_ffmpeg_path() is None
 
 
 class TestDownload:

@@ -144,7 +144,7 @@ describe("getVideoMixUsageLabel", () => {
       { id: "1", leadingPaths: ["/a.mp4"] },
       { id: "2", leadingPaths: ["/b.mp4"] },
     ];
-    expect(getVideoMixUsageLabel("/a.mp4", rows)).toBe("Đã dùng: Mix #1");
+    expect(getVideoMixUsageLabel("/a.mp4", rows)).toBe("Mix #1");
     expect(getVideoMixUsageLabel("/c.mp4", rows)).toBeNull();
   });
 
@@ -153,7 +153,7 @@ describe("getVideoMixUsageLabel", () => {
       { id: "1", leadingPaths: ["/a.mp4"] },
       { id: "2", leadingPaths: ["/a.mp4", "/b.mp4"] },
     ];
-    expect(getVideoMixUsageLabel("/a.mp4", rows)).toBe("Đã dùng: Mix #1, #2");
+    expect(getVideoMixUsageLabel("/a.mp4", rows)).toBe("Mix #1, #2");
   });
 });
 
