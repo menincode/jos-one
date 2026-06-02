@@ -54,7 +54,8 @@ UV_RUN ?= $(UV) run
 APP_BIN := dist/$(APP_NAME)$(EXE_EXT)
 ICON_ASSET := packaging/assets/josvn-icon.ico
 UPX ?= upx
-UPX_FLAGS ?=
+# UPX 5.x: PyInstaller onefile PEs use CFG — need --force (see upx CantPackException).
+UPX_FLAGS ?= --force
 
 export APP_ENV
 

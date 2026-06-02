@@ -506,22 +506,11 @@ def test_render_mix_row_preserves_clip_input_order(tmp_path: Path) -> None:
     assert [Path(path).name for path in input_paths] == ["in0.mp4", "in1.mp4", "in2.mp4"]
 
 
-def test_video_codec_args_skips_nvenc_when_nvcuda_missing(monkeypatch) -> None:
-    monkeypatch.setattr(pipeline, "_ffmpeg_supports_encoder", lambda *_a, **_k: True)
-    monkeypatch.setattr(pipeline, "_nvcuda_runtime_available", lambda: False)
-    pipeline.disable_nvenc_runtime()
-    pipeline._nvenc_usable.cache_clear()
-
+def test_video_codec_args_uses_libx264() -> None:
     args = pipeline._video_codec_args(Path("ffmpeg.exe"))
 
     assert "libx264" in args
     assert "h264_nvenc" not in args
-
-
-def test_nvenc_failure_detects_nvcuda_error() -> None:
-    log = "[h264_nvenc] Cannot load nvcuda.dll\nConversion failed!"
-    cmd = ["ffmpeg", "-c:v", "h264_nvenc", "out.mp4"]
-    assert pipeline._nvenc_failure(log, cmd) is True
 
 
 def test_render_segment_builds_filter_complex(tmp_path: Path) -> None:

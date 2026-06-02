@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import ctypes
 import logging
-import os
 import random
 import re
 import shlex
 import subprocess
 import sys
 import threading
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 
@@ -70,21 +67,6 @@ OUTPUT_METADATA_ARGS = [
     "language=eng",
     "-metadata",
     "encoder=",
-]
-_NVENC_ARGS_FAST = [
-    "-c:v",
-    "h264_nvenc",
-    "-pix_fmt",
-    "yuv420p",
-    # NVENC presets are p1..p7 (fastest..best quality). p4 ~= balanced.
-    "-preset",
-    "p4",
-    "-rc",
-    "vbr",
-    "-cq",
-    "20",
-    "-b:v",
-    "0",
 ]
 AAC_ARGS = ["-c:a", "aac", "-b:a", "192k"]
 
@@ -180,84 +162,8 @@ def log_ffmpeg_command_before_render(label: str, cmd: list[str]) -> None:
     _ffmpeg_log.info(message)
 
 
-@lru_cache(maxsize=8)
-def _ffmpeg_supports_encoder(ffmpeg_bin: str, encoder_name: str) -> bool:
-    """Check whether ffmpeg binary lists an encoder (compiled in; not runtime)."""
-    try:
-        res = subprocess.run(
-            [ffmpeg_bin, "-hide_banner", "-encoders"],
-            capture_output=True,
-            text=True,
-            timeout=8,
-            check=False,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,  # type: ignore[attr-defined]
-        )
-    except Exception:
-        return False
-    out = (res.stdout or "") + "\n" + (res.stderr or "")
-    return encoder_name.lower() in out.lower()
-
-
-def _nvcuda_runtime_available() -> bool:
-    """True when NVIDIA CUDA user-mode driver (nvcuda) is present on this machine."""
-    if sys.platform == "win32":
-        try:
-            ctypes.WinDLL("nvcuda.dll")
-            return True
-        except OSError:
-            pass
-        sysroot = Path(os.environ.get("SystemRoot", r"C:\Windows"))
-        return (sysroot / "System32" / "nvcuda.dll").is_file()
-    try:
-        ctypes.CDLL("libcuda.so.1")
-        return True
-    except OSError:
-        return False
-
-
-_nvenc_runtime_disabled = False
-
-
-def disable_nvenc_runtime() -> None:
-    """Force CPU encoder for this process (e.g. after NVENC init failure)."""
-    global _nvenc_runtime_disabled
-    _nvenc_runtime_disabled = True
-    _nvenc_usable.cache_clear()
-
-
-@lru_cache(maxsize=8)
-def _nvenc_usable(ffmpeg_bin: str) -> bool:
-    """NVENC needs both encoder in ffmpeg AND a working NVIDIA CUDA runtime."""
-    if _nvenc_runtime_disabled:
-        return False
-    if not _ffmpeg_supports_encoder(ffmpeg_bin, "h264_nvenc"):
-        return False
-    if not _nvcuda_runtime_available():
-        logger.info(
-            "NVENC skipped: nvcuda not available (FFmpeg lists h264_nvenc but no NVIDIA GPU/driver)"
-        )
-        return False
-    return True
-
-
-def _nvenc_failure(stderr_log: str, cmd: list[str]) -> bool:
-    joined = " ".join(cmd).lower()
-    if "h264_nvenc" not in joined and "nvenc" not in joined:
-        return False
-    lower = stderr_log.lower()
-    return (
-        "nvcuda.dll" in lower
-        or "cannot load nvcuda" in lower
-        or "no nvenc capable devices" in lower
-        or "error initializing output stream" in lower
-    )
-
-
 def _video_codec_args(ffmpeg_bin: Path) -> list[str]:
-    """Pick the fastest available H.264 encoder (NVENC only when CUDA runtime exists)."""
-    if _nvenc_usable(str(ffmpeg_bin)):
-        _ffmpeg_log.info("Using NVIDIA NVENC encoder (h264_nvenc)")
-        return list(_NVENC_ARGS_FAST)
+    """H.264 encoder args (CPU libx264 only)."""
     _ffmpeg_log.info("Using CPU encoder (libx264 preset=veryfast)")
     return list(_X264_ARGS_FAST)
 
@@ -781,21 +687,7 @@ def _render_segment(
         f"Render segment {src.name} → {dest.name}",
         cmd,
     )
-    ok, msg, log = _run_ffmpeg(cmd, on_stderr_line=on_line, cancel_check=cancel_check)
-    if not ok and _nvenc_failure(log, cmd):
-        _ffmpeg_log.warning(
-            "NVENC failed (%s); falling back to libx264 for remaining encodes",
-            _summarize_ffmpeg_stderr(log) or "nvcuda",
-        )
-        disable_nvenc_runtime()
-        cmd = build_cmd(list(_X264_ARGS_FAST))
-        log_ffmpeg_command_before_render(
-            f"Render segment {src.name} → {dest.name} (libx264 fallback)",
-            cmd,
-        )
-        ok, msg, _ = _run_ffmpeg(
-            cmd, on_stderr_line=on_line, cancel_check=cancel_check
-        )
+    ok, msg, _log = _run_ffmpeg(cmd, on_stderr_line=on_line, cancel_check=cancel_check)
     return ok, msg
 
 
@@ -921,20 +813,6 @@ def _xfade_segments(
         cmd,
     )
     ok, msg, log = _run_ffmpeg(cmd, on_stderr_line=on_line, cancel_check=cancel_check)
-    if not ok and _nvenc_failure(log, cmd):
-        _ffmpeg_log.warning(
-            "NVENC xfade join failed (%s); falling back to libx264",
-            _summarize_ffmpeg_stderr(log) or "nvcuda",
-        )
-        disable_nvenc_runtime()
-        cmd = build_cmd(list(_X264_ARGS_FAST))
-        log_ffmpeg_command_before_render(
-            f"Xfade join {len(segment_paths)} segments → {output_path.name} (libx264 fallback)",
-            cmd,
-        )
-        ok, msg, log = _run_ffmpeg(
-            cmd, on_stderr_line=on_line, cancel_check=cancel_check
-        )
     return ok, msg, log
 
 
@@ -1082,17 +960,6 @@ def _render_mix_unified(
     cmd = build_cmd(_video_codec_args(ffmpeg_bin))
     log_ffmpeg_command_before_render(label, cmd)
     ok, msg, log = _run_ffmpeg(cmd, on_stderr_line=on_line, cancel_check=cancel_check)
-    if not ok and _nvenc_failure(log, cmd):
-        _ffmpeg_log.warning(
-            "NVENC unified mix failed (%s); falling back to libx264",
-            _summarize_ffmpeg_stderr(log) or "nvcuda",
-        )
-        disable_nvenc_runtime()
-        cmd = build_cmd(list(_X264_ARGS_FAST))
-        log_ffmpeg_command_before_render(f"{label} (libx264 fallback)", cmd)
-        ok, msg, log = _run_ffmpeg(
-            cmd, on_stderr_line=on_line, cancel_check=cancel_check
-        )
     return ok, msg, log
 
 
