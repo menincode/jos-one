@@ -10,6 +10,7 @@ import pytest
 
 from python.services.video_merge.io import ExportRenderConfig
 from python.services.video_merge import pipeline
+from python.services.video_merge import ffmpeg_pool
 
 RENDER_SAMPLE = """
 frame=   32 fps=0.0 q=28.0 size=     512kB time=00:00:01.06 bitrate=3942.0kbits/s speed=2.05x
@@ -504,6 +505,126 @@ def test_render_mix_row_preserves_clip_input_order(tmp_path: Path) -> None:
     cmd = captured[0]
     input_paths = [cmd[i + 1] for i, token in enumerate(cmd) if token == "-i"]
     assert [Path(path).name for path in input_paths] == ["in0.mp4", "in1.mp4", "in2.mp4"]
+
+
+def test_should_use_unified_mix_thresholds() -> None:
+    assert pipeline._should_use_unified_mix(4, 90 * 60)
+    assert not pipeline._should_use_unified_mix(5, 10.0)
+    assert not pipeline._should_use_unified_mix(3, 91 * 60)
+
+
+def test_render_mix_row_uses_segmented_path_for_long_rows(tmp_path: Path) -> None:
+    srcs = [tmp_path / f"in{i}.mp4" for i in range(3)]
+    for src in srcs:
+        src.write_bytes(b"x")
+    out = tmp_path / "mix.mp4"
+    row_temp = tmp_path / "row"
+    config = ExportRenderConfig(
+        format_ext="mp4",
+        width=320,
+        height=240,
+        fps=15,
+        zoom_min=1.0,
+        zoom_max=1.0,
+        speed_min=1.0,
+        speed_max=1.0,
+        logo_path=None,
+        logo_position="bottom_right",
+        duration_min_sec=10,
+        duration_max_sec=7200,
+        concurrency=2,
+        scene_transition="none",
+    )
+    pool_calls: list[int] = []
+    join_calls: list[list[Path]] = []
+
+    def fake_render_segments(self, tasks, **kwargs):
+        pool_calls.append(len(tasks))
+        return [task.dest_path for task in tasks]
+
+    def fake_join(segment_paths, output_path, *args, **kwargs):
+        join_calls.append(list(segment_paths))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"ok")
+        return True, "", "time=00:02:00.00 speed=2.0x"
+
+    with (
+        patch.object(pipeline, "_get_binaries", return_value=(Path("ffmpeg"), Path("ffprobe"))),
+        patch.object(pipeline, "_probe_source_duration", return_value=4000.0),
+        patch.object(pipeline, "_probe_has_audio", return_value=False),
+        patch.object(
+            ffmpeg_pool.FfmpegTaskPool,
+            "render_segments",
+            fake_render_segments,
+        ),
+        patch.object(pipeline, "_join_segments", side_effect=fake_join),
+    ):
+        ok, msg, _, _, _chaptime = pipeline.render_mix_row(
+            row_id="mix-long",
+            sequence_paths=[str(s) for s in srcs],
+            export_config=config,
+            output_path=out,
+            temp_dir=row_temp,
+            cancel_check=lambda: False,
+        )
+
+    assert ok, msg
+    assert pool_calls == [3]
+    assert len(join_calls) == 1
+    assert len(join_calls[0]) == 3
+    assert out.is_file()
+
+
+def test_join_segments_xfade_pairwise_for_three_segments(tmp_path: Path) -> None:
+    segs = [tmp_path / f"seg{i}.mp4" for i in range(3)]
+    for seg in segs:
+        seg.write_bytes(b"x")
+    out = tmp_path / "mix.mp4"
+    captured: list[list[str]] = []
+
+    config = ExportRenderConfig(
+        format_ext="mp4",
+        width=320,
+        height=240,
+        fps=15,
+        zoom_min=1.0,
+        zoom_max=1.0,
+        speed_min=1.0,
+        speed_max=1.0,
+        logo_path=None,
+        logo_position="bottom_right",
+        duration_min_sec=10,
+        duration_max_sec=120,
+        concurrency=1,
+        scene_transition="fade",
+        transition_duration_min_sec=0.5,
+        transition_duration_max_sec=0.5,
+    )
+
+    def fake_run(cmd, **kwargs):
+        captured.append(cmd)
+        Path(cmd[-1]).write_bytes(b"ok")
+        return True, "", "time=00:00:10.00 speed=2.0x"
+
+    with (
+        patch.object(pipeline, "_run_ffmpeg", side_effect=fake_run),
+        patch.object(pipeline, "_probe_source_duration", return_value=10.0),
+        patch.object(pipeline, "_probe_has_audio", return_value=True),
+    ):
+        ok, msg, _log = pipeline._join_segments(
+            segs,
+            out,
+            config,
+            Path("ffmpeg"),
+            Path("ffprobe"),
+            random.Random(1),
+            temp_dir=tmp_path / "work",
+        )
+
+    assert ok, msg
+    assert len(captured) == 2
+    assert all(cmd.count("-i") == 2 for cmd in captured)
+    assert all("xfade=transition=" in cmd[cmd.index("-filter_complex") + 1] for cmd in captured)
 
 
 def test_video_codec_args_uses_libx264() -> None:

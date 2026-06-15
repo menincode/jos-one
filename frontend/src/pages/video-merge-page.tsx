@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ListX, RefreshCw, Trash2 } from "lucide-react";
+import { ListX, RefreshCw, Trash2, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppToneButton } from "@/components/common/app-tone-button";
@@ -18,7 +18,7 @@ import {
   resolveVideoMergeActionStatus,
 } from "@/features/video-merge/get-start-merge-hint";
 import { canShowMixVideoTable } from "@/features/video-merge/merge-folder-validation";
-import { MAX_LEADING_VIDEOS_PER_ROW } from "@/features/video-merge/mix-row-types";
+import { MAX_LEADING_VIDEOS_PER_ROW, type MixRow } from "@/features/video-merge/mix-row-types";
 import {
   setLeadingVideosForRow,
   buildMixValidationContext,
@@ -26,6 +26,7 @@ import {
 } from "@/features/video-merge/mix-row-utils";
 import { canPreviewMixRow } from "@/features/video-merge/mix-output-path";
 import { reconcileMixRowsWithVideos } from "@/features/video-merge/video-path-utils";
+import { MixSheetImportPanel } from "@/features/video-merge/mix-sheet-import-panel";
 import { MixVideoPanel } from "@/features/video-merge/mix-video-panel";
 import { resolveSelectedMixRowId } from "@/features/video-merge/mix-workspace-persist";
 import { useMergeFolderValidation } from "@/features/video-merge/use-merge-folder-validation";
@@ -71,10 +72,12 @@ export function VideoMergePage() {
     start,
     cancel,
     resetMixJobDisplay,
+    clearMixJobDisplay,
     refreshingJobStatus,
   } = useVideoMergeJob();
 
   const [selectedVideoPaths, setSelectedVideoPaths] = useState<Set<string>>(() => new Set());
+  const [sheetImportOpen, setSheetImportOpen] = useState(false);
   const didSyncCheckboxesFromRestoreRef = useRef(false);
 
   const folderValidation = useMergeFolderValidation(
@@ -336,6 +339,22 @@ export function VideoMergePage() {
     toast.success("Đã xóa tất cả mix.");
   }, [mixRows, clearAllMixRows, jobOutputs, rowJobStates]);
 
+  const handleImportMixFromSheet = useCallback(
+    async (importedRows: MixRow[]) => {
+      await clearMixJobDisplay();
+      replaceMixRows(importedRows);
+      const firstRow = importedRows[0];
+      if (firstRow) {
+        setSelectedMixRowId(firstRow.id);
+        setSelectedVideoPaths(new Set(firstRow.leadingPaths));
+      } else {
+        setSelectedMixRowId(null);
+        setSelectedVideoPaths(new Set());
+      }
+    },
+    [clearMixJobDisplay, replaceMixRows, setSelectedMixRowId],
+  );
+
   async function handleStartMerge() {
     const reconciled = reconcileMixRowsWithVideos(mixRows, videos);
     const rowsForStart = reconciled.changed ? reconciled.rows : mixRows;
@@ -467,6 +486,18 @@ export function VideoMergePage() {
             hasInputFolder ? (
               <div className="flex shrink-0 items-center gap-2">
                 <AppToneButton
+                  icon={FileSpreadsheet}
+                  tone="purple"
+                  size="sm"
+                  showIconBox={false}
+                  className="h-8 shrink-0 text-xs"
+                  disabled={formDisabled || loading}
+                  title="Import danh sách mix từ Google Sheet"
+                  onClick={() => setSheetImportOpen(true)}
+                >
+                  Import Sheet
+                </AppToneButton>
+                <AppToneButton
                   icon={RefreshCw}
                   tone="teal"
                   size="sm"
@@ -519,6 +550,15 @@ export function VideoMergePage() {
           ) : null}
         </WorkspacePanel>
       </div>
+
+      <MixSheetImportPanel
+        open={sheetImportOpen}
+        disabled={formDisabled || loading}
+        videos={videos}
+        existingMixCount={mixRows.length}
+        onClose={() => setSheetImportOpen(false)}
+        onImport={handleImportMixFromSheet}
+      />
     </AppPage>
   );
 }

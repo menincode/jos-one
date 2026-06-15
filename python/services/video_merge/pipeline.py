@@ -85,6 +85,13 @@ ROW_PHASE_CONCAT = "concat"
 
 _FPS_MATCH_EPSILON = 0.05
 
+# Unified mix opens every source in one filter graph — fast for short rows, OOM on long ones.
+_UNIFIED_MAX_CLIPS = 4
+_UNIFIED_MAX_TOTAL_DURATION_SEC = 90 * 60
+# Pairwise xfade keeps at most two decoded inputs in memory (vs N inputs in one graph).
+_XFADE_PAIRWISE_MIN_SEGMENTS = 3
+_FFMPEG_JOIN_RESOURCE_ARGS = ["-threads", "2", "-filter_threads", "1"]
+
 _LOGO_OVERLAY = {
     "top_left": "10:10",
     "top_center": "(W-w)/2:10",
@@ -742,6 +749,151 @@ def _concat_segments(
     return ok, msg, log
 
 
+def _should_use_unified_mix(clip_count: int, total_duration_sec: float) -> bool:
+    """Single-pass mix is only safe for small rows (few clips, short total duration)."""
+    return (
+        clip_count <= _UNIFIED_MAX_CLIPS
+        and total_duration_sec <= _UNIFIED_MAX_TOTAL_DURATION_SEC
+    )
+
+
+def _xfade_two_segments(
+    left_path: Path,
+    right_path: Path,
+    output_path: Path,
+    *,
+    left_duration: float,
+    transition: str,
+    transition_duration: float,
+    ffmpeg_bin: Path,
+    include_audio: bool,
+    on_progress: Callable[[float | None, float | None], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> tuple[bool, str, str]:
+    """Join two normalized segments with one xfade / acrossfade (constant memory)."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    offset = max(0.0, left_duration - transition_duration)
+    td = transition_duration
+    parts = [
+        f"[0:v][1:v]xfade=transition={transition}:duration={td:.3f}:offset={offset:.3f}[vout]"
+    ]
+    if include_audio:
+        parts.append(f"[0:a][1:a]acrossfade=d={td:.3f}:c1=tri:c2=tri[aout]")
+    filter_complex = ";".join(parts)
+
+    stderr_acc: list[str] = []
+
+    def on_line(line: str) -> None:
+        stderr_acc.append(line)
+        if on_progress:
+            chunk = "".join(stderr_acc[-20:])
+            on_progress(
+                _parse_duration_from_log(chunk),
+                _parse_speed_from_log(chunk),
+            )
+
+    cmd = [
+        str(ffmpeg_bin),
+        "-y",
+        "-i",
+        str(left_path.resolve()),
+        "-i",
+        str(right_path.resolve()),
+        "-filter_complex",
+        filter_complex,
+        "-map",
+        "[vout]",
+    ]
+    if include_audio:
+        cmd.extend(["-map", "[aout]", *AAC_ARGS])
+    else:
+        cmd.append("-an")
+    cmd.extend(_video_codec_args(ffmpeg_bin))
+    cmd.extend(_FFMPEG_JOIN_RESOURCE_ARGS)
+    cmd.extend(OUTPUT_METADATA_ARGS)
+    cmd.append(str(output_path))
+
+    log_ffmpeg_command_before_render(
+        f"Xfade pair {left_path.name} + {right_path.name} → {output_path.name}",
+        cmd,
+    )
+    ok, msg, log = _run_ffmpeg(cmd, on_stderr_line=on_line, cancel_check=cancel_check)
+    return ok, msg, log
+
+
+def _xfade_segments_pairwise(
+    segment_paths: list[Path],
+    output_path: Path,
+    ffmpeg_bin: Path,
+    ffprobe_bin: Path,
+    join_plan: chapter_timestamps.JoinTransitionPlan,
+    temp_dir: Path,
+    *,
+    on_progress: Callable[[float | None, float | None], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> tuple[bool, str, str]:
+    """Chain xfade joins two segments at a time to limit FFmpeg decoder memory."""
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    durations: list[float] = []
+    for path in segment_paths:
+        probed = _probe_source_duration(str(path), ffprobe_bin)
+        if probed is None or probed <= 0:
+            return False, f"Không đọc được thời lượng segment: {path.name}", ""
+        durations.append(probed)
+
+    has_audio_flags = [_probe_has_audio(str(path), ffprobe_bin) for path in segment_paths]
+    include_audio = all(has_audio_flags)
+    if not include_audio and any(has_audio_flags):
+        logger.info(
+            "Mixed audio segments; joining with video xfade only (no audio track)."
+        )
+
+    transitions = list(join_plan.transitions)
+    transition_durations = list(join_plan.overlaps)
+    if len(transitions) != len(segment_paths) - 1:
+        return False, "Lỗi cấu hình xfade (số transition không khớp).", ""
+
+    current_path = segment_paths[0]
+    current_dur = durations[0]
+    last_log = ""
+
+    for index in range(1, len(segment_paths)):
+        if cancel_check and cancel_check():
+            return False, "Đã hủy.", last_log
+
+        is_last = index == len(segment_paths) - 1
+        dest = output_path if is_last else temp_dir / f"xfade_partial_{index:04d}.mp4"
+        previous_partial = current_path if index > 1 else None
+
+        ok, msg, log = _xfade_two_segments(
+            current_path,
+            segment_paths[index],
+            dest,
+            left_duration=current_dur,
+            transition=transitions[index - 1],
+            transition_duration=transition_durations[index - 1],
+            ffmpeg_bin=ffmpeg_bin,
+            include_audio=include_audio,
+            on_progress=on_progress,
+            cancel_check=cancel_check,
+        )
+        if not ok:
+            return False, msg, log
+        last_log = log
+
+        if previous_partial is not None and previous_partial.is_file():
+            try:
+                previous_partial.unlink()
+            except OSError:
+                pass
+
+        if not is_last:
+            current_path = dest
+            current_dur = current_dur + durations[index] - transition_durations[index - 1]
+
+    return True, "", last_log
+
+
 def _xfade_segments(
     segment_paths: list[Path],
     output_path: Path,
@@ -750,11 +902,29 @@ def _xfade_segments(
     ffprobe_bin: Path,
     join_plan: chapter_timestamps.JoinTransitionPlan,
     *,
+    temp_dir: Path | None = None,
     on_progress: Callable[[float | None, float | None], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> tuple[bool, str, str]:
-    """Join normalized segments with chained xfade / acrossfade (re-encode once)."""
+    """Join normalized segments with chained xfade / acrossfade."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if len(segment_paths) >= _XFADE_PAIRWISE_MIN_SEGMENTS:
+        work_dir = temp_dir or output_path.parent
+        logger.info(
+            "Using pairwise xfade join for %s segments (memory-safe)",
+            len(segment_paths),
+        )
+        return _xfade_segments_pairwise(
+            segment_paths,
+            output_path,
+            ffmpeg_bin,
+            ffprobe_bin,
+            join_plan,
+            work_dir,
+            on_progress=on_progress,
+            cancel_check=cancel_check,
+        )
+
     durations: list[float] = []
     for path in segment_paths:
         probed = _probe_source_duration(str(path), ffprobe_bin)
@@ -803,6 +973,7 @@ def _xfade_segments(
         else:
             cmd.append("-an")
         cmd.extend(codec_args)
+        cmd.extend(_FFMPEG_JOIN_RESOURCE_ARGS)
         cmd.extend(OUTPUT_METADATA_ARGS)
         cmd.append(str(output_path))
         return cmd
@@ -825,6 +996,7 @@ def _join_segments(
     rng: random.Random,
     *,
     join_plan: chapter_timestamps.JoinTransitionPlan | None = None,
+    temp_dir: Path | None = None,
     on_progress: Callable[[float | None, float | None], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> tuple[bool, str, str]:
@@ -864,6 +1036,7 @@ def _join_segments(
         ffmpeg_bin,
         ffprobe_bin,
         join_plan,
+        temp_dir=temp_dir,
         on_progress=on_progress,
         cancel_check=cancel_check,
     )
@@ -1028,8 +1201,8 @@ def render_mix_row(
         join_plan,
     )
 
+    total_duration = sum(segment_durations)
     join_label = "Ghép video"
-    emit_progress(None, None, join_label, ROW_PHASE_CONCAT)
 
     def on_join_progress(dur: float | None, speed: float | None) -> None:
         speed_s = f"{speed:.1f}x" if speed is not None else "—"
@@ -1042,19 +1215,98 @@ def render_mix_row(
             ROW_PHASE_CONCAT,
         )
 
-    ok, msg, log = _render_mix_unified(
-        sequence_paths=sequence_paths,
-        effects=effects,
-        export_config=export_config,
-        output_path=output_path,
-        ffmpeg_bin=ffmpeg_bin,
-        ffprobe_bin=ffprobe_bin,
-        join_plan=join_plan,
-        segment_durations=segment_durations,
-        probes=probes,
-        on_progress=on_join_progress,
-        cancel_check=cancel_check,
-    )
+    if _should_use_unified_mix(n, total_duration):
+        emit_progress(None, None, "Mix video", ROW_PHASE_MIX_VIDEO)
+        ok, msg, log = _render_mix_unified(
+            sequence_paths=sequence_paths,
+            effects=effects,
+            export_config=export_config,
+            output_path=output_path,
+            ffmpeg_bin=ffmpeg_bin,
+            ffprobe_bin=ffprobe_bin,
+            join_plan=join_plan,
+            segment_durations=segment_durations,
+            probes=probes,
+            on_progress=on_join_progress,
+            cancel_check=cancel_check,
+        )
+    else:
+        from python.services.video_merge.ffmpeg_pool import (
+            FfmpegTaskPool,
+            RowClipProgress,
+            SegmentRenderTask,
+        )
+
+        logger.info(
+            "Segmented mix row=%s clips=%s total=%.0fs (memory-safe path)",
+            row_id,
+            n,
+            total_duration,
+        )
+        emit_progress(None, None, "Chuẩn hóa clip", ROW_PHASE_NORMALIZE)
+
+        tasks = [
+            SegmentRenderTask(
+                row_id=row_id,
+                clip_index=i,
+                clip_total=n,
+                src_path=sequence_paths[i],
+                dest_path=temp_dir / f"seg_{i:04d}.mp4",
+                zoom=effects[i][0],
+                speed=effects[i][1],
+            )
+            for i in range(n)
+        ]
+        row_progress = RowClipProgress(n)
+
+        def on_clip_progress(
+            clip_idx: int,
+            basename: str,
+            dur: float | None,
+            spd: float | None,
+        ) -> None:
+            display_idx = row_progress.display_clip_index()
+            display_name = row_progress.display_basename(display_idx, basename)
+            speed_s = f"{spd:.1f}x" if spd is not None else "—"
+            emit_progress(
+                dur,
+                spd,
+                f"Clip {display_idx}/{n} · {display_name} · {speed_s}",
+                ROW_PHASE_NORMALIZE,
+            )
+
+        with FfmpegTaskPool(max_workers=max(1, export_config.concurrency)) as pool:
+            results = pool.render_segments(
+                tasks,
+                export_config=export_config,
+                ffmpeg_bin=ffmpeg_bin,
+                ffprobe_bin=ffprobe_bin,
+                row_progress=row_progress,
+                on_clip_progress=on_clip_progress,
+                cancel_check=cancel_check,
+            )
+
+        if cancel_check():
+            return False, "Đã hủy.", last_duration, last_speed, ""
+
+        if any(path is None for path in results):
+            return False, "Lỗi render clip.", last_duration, last_speed, ""
+
+        segment_paths = [path for path in results if path is not None]
+        emit_progress(None, None, join_label, ROW_PHASE_CONCAT)
+        ok, msg, log = _join_segments(
+            segment_paths,
+            output_path,
+            export_config,
+            ffmpeg_bin,
+            ffprobe_bin,
+            rng,
+            join_plan=join_plan,
+            temp_dir=temp_dir,
+            on_progress=on_join_progress,
+            cancel_check=cancel_check,
+        )
+
     if not ok:
         return False, msg, last_duration, last_speed, ""
 

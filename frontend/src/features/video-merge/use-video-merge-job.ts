@@ -133,10 +133,10 @@ export function useVideoMergeJob() {
   const resetMixJobDisplay = useCallback(async () => {
     if (statusRef.current === "running") {
       toast.error("Đang ghép video, không thể làm mới bảng mix.");
-      return;
+      return false;
     }
     if (refreshingJobStatus) {
-      return;
+      return false;
     }
     setRefreshingJobStatus(true);
     try {
@@ -145,7 +145,7 @@ export function useVideoMergeJob() {
         const result = await client.resetVideoMergeJobDisplay();
         if (!result.ok) {
           toast.error(result.message || "Không làm mới được bảng mix.");
-          return;
+          return false;
         }
       }
       applyJobSnapshot({
@@ -157,14 +157,43 @@ export function useVideoMergeJob() {
         row_states: {},
       });
       toast.success("Đã làm mới bảng mix.");
+      return true;
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Không làm mới được bảng mix.";
       toast.error(message);
+      return false;
     } finally {
       setRefreshingJobStatus(false);
     }
   }, [applyJobSnapshot, refreshingJobStatus]);
+
+  /** Clear merge job display without toast (e.g. before sheet import replaces all mixes). */
+  const clearMixJobDisplay = useCallback(async () => {
+    if (statusRef.current === "running") {
+      return false;
+    }
+    try {
+      if (isPywebviewShell()) {
+        const client = await createBridgeClient();
+        const result = await client.resetVideoMergeJobDisplay();
+        if (!result.ok) {
+          return false;
+        }
+      }
+      applyJobSnapshot({
+        status: "idle",
+        message: "",
+        progress: 0,
+        total: 0,
+        outputs: [],
+        row_states: {},
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, [applyJobSnapshot]);
 
   useEffect(() => {
     if (!isPywebviewShell()) {
@@ -273,6 +302,7 @@ export function useVideoMergeJob() {
     cancel,
     refreshJobStatus,
     resetMixJobDisplay,
+    clearMixJobDisplay,
     refreshingJobStatus,
   };
 }

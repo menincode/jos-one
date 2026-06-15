@@ -22,6 +22,7 @@ import type {
   PyWebViewApi,
   StartVideoMergeJobResult,
   ValidateMergeFoldersResult,
+  GoogleSheetRowsResult,
   VideoMergeJobStatusResult,
   WatermarkProgressSnapshot,
   WatermarkVideoRow,
@@ -156,6 +157,19 @@ function createMockClient(): BridgeClient {
           ...v,
           duration_sec: [125.5, 48, 312][i] ?? 60,
         })),
+      };
+    },
+    fetchGoogleSheetRows: async (url: string) => {
+      if (!url.trim()) {
+        return { ok: false, rows: [], message: "URL trống" };
+      }
+      return {
+        ok: true,
+        rows: [
+          ["Số tập đầu tiên", "Số tập thứ 2", "Số tập thứ 3"],
+          ["intro", "scene-01", "outro"],
+        ],
+        message: "",
       };
     },
     getFfmpegStatus: async () => ({
@@ -294,6 +308,8 @@ function createRealClient(api: PyWebViewApi): BridgeClient {
       call<ListVideosResult>("list_videos_in_folder", folder),
     probeVideosInFolder: (folder: string) =>
       call<ListVideosResult>("probe_videos_in_folder", folder),
+    fetchGoogleSheetRows: (url: string) =>
+      call<GoogleSheetRowsResult>("fetch_google_sheet_rows", url),
     openFolderInExplorer: (folder: string) =>
       call<FolderDialogResult>("open_folder_in_explorer", folder),
     openMediaFile: (filePath: string) =>

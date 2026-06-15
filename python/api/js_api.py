@@ -28,6 +28,7 @@ from python.services.settings_service import (
     save_remove_watermark_settings,
     save_video_merge_settings,
 )
+from python.services.video_merge.google_sheet import fetch_google_sheet_rows
 from python.services.video_merge.job import (
     get_video_merge_job_status,
     request_cancel_video_merge,
@@ -97,6 +98,11 @@ class JsApi(JsApiBase):
         videos = enrich_videos_with_duration(listing["videos"])
         listing["videos"] = videos
         return self._safe_return(listing)
+
+    def fetch_google_sheet_rows(self, url: str) -> dict[str, str | bool | list]:
+        if not isinstance(url, str):
+            raise ValueError("fetch_google_sheet_rows: url must be a string")
+        return self._safe_return(fetch_google_sheet_rows(url))
 
     def open_folder_in_explorer(self, folder: str) -> dict[str, str | bool]:
         if not isinstance(folder, str):

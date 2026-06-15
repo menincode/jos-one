@@ -170,6 +170,12 @@ export interface BridgeRemoveWatermarkSettings {
   thread_count: number;
 }
 
+export interface GoogleSheetRowsResult {
+  ok: boolean;
+  rows: string[][];
+  message: string;
+}
+
 export interface PyWebViewApi {
   ping: (name: string) => Promise<PingResult>;
   get_app_info: () => Promise<AppInfo>;
@@ -183,6 +189,7 @@ export interface PyWebViewApi {
   ) => Promise<ValidateMergeFoldersResult>;
   list_videos_in_folder: (folder: string) => Promise<ListVideosResult>;
   probe_videos_in_folder: (folder: string) => Promise<ListVideosResult>;
+  fetch_google_sheet_rows: (url: string) => Promise<GoogleSheetRowsResult>;
   open_folder_in_explorer: (folder: string) => Promise<FolderDialogResult>;
   open_media_file: (file_path: string) => Promise<FolderDialogResult>;
   open_image_file_dialog: (directory?: string) => Promise<FolderDialogResult>;
@@ -253,6 +260,7 @@ export interface BridgeClient {
   ) => Promise<ValidateMergeFoldersResult>;
   listVideosInFolder: (folder: string) => Promise<ListVideosResult>;
   probeVideosInFolder: (folder: string) => Promise<ListVideosResult>;
+  fetchGoogleSheetRows: (url: string) => Promise<GoogleSheetRowsResult>;
   openFolderInExplorer: (folder: string) => Promise<FolderDialogResult>;
   openMediaFile: (file_path: string) => Promise<FolderDialogResult>;
   openImageFileDialog: (directory?: string) => Promise<FolderDialogResult>;
