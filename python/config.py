@@ -11,6 +11,7 @@ APP_DATA_DIR_NAME = "data"
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 DEV_SERVER_URL = os.getenv("DEV_SERVER_URL", "http://127.0.0.1:5173")
 APP_TITLE = os.getenv("APP_TITLE", "JOS One")
+APP_VERSION = os.getenv("APP_VERSION", "1.1.0")
 APP_NAME = os.getenv("APP_NAME", "jos-one")
 APP_ICON_ICO = REPO_ROOT / "packaging" / "assets" / "josvn-icon.ico"
 
@@ -24,6 +25,11 @@ if _width.isdigit():
     WINDOW_WIDTH = int(_width)
 if _height.isdigit():
     WINDOW_HEIGHT = int(_height)
+
+
+def get_window_title() -> str:
+    """Native window title bar text (includes app version)."""
+    return f"{APP_TITLE} v{APP_VERSION}"
 
 
 def window_start_maximized() -> bool:

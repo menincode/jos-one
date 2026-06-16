@@ -60,7 +60,7 @@ UPX_FLAGS ?= --force
 export APP_ENV
 
 .PHONY: help install sync-uv deps-frontend deps-frontend-build build-icon \
-	start local dev prod prod-run build package package-pyinstaller package-upx clean
+	start local dev prod prod-run build package package-pyinstaller package-upx package-sign clean
 
 help:
 	@echo "Targets: install, start (default), local, dev, prod, build, package, clean"
@@ -125,7 +125,7 @@ build-icon: sync-uv
 
 build: package
 
-package: install deps-frontend-build package-pyinstaller package-upx
+package: install deps-frontend-build package-pyinstaller package-upx package-sign
 
 package-pyinstaller: sync-uv deps-frontend-build
 ifeq ($(OS),Windows_NT)
@@ -143,12 +143,12 @@ endif
 
 package-upx:
 ifeq ($(OS),Windows_NT)
-	@if not exist "$(APP_BIN)" (echo Run package-pyinstaller first — missing $(APP_BIN) && exit /b 1)
+	@if not exist "$(APP_BIN)" (echo Run package-pyinstaller first - missing $(APP_BIN) && exit /b 1)
 else
-	@test -f "$(APP_BIN)" || (echo "Run package-pyinstaller first — missing $(APP_BIN)" && exit 1)
+	@test -f "$(APP_BIN)" || (echo "Run package-pyinstaller first - missing $(APP_BIN)" && exit 1)
 endif
 ifneq ($(HAS_UPX),1)
-	@echo UPX not on PATH — skipping compression. Install UPX 4.x or set UPX=path\to\upx.exe
+	@echo UPX not on PATH - skipping compression. Install UPX 4.x or set UPX=path\to\upx.exe
 else
 ifeq ($(OS),Windows_NT)
 	@if not exist "$(APP_BIN).bak" copy /Y "$(APP_BIN)" "$(APP_BIN).bak" >nul
@@ -157,6 +157,14 @@ else
 endif
 	$(UPX) --best $(UPX_FLAGS) "$(APP_BIN)"
 	@echo "UPX packed: $(APP_BIN)"
+endif
+
+package-sign:
+ifeq ($(OS),Windows_NT)
+	@if not exist "$(APP_BIN)" (echo Run package-pyinstaller first - missing $(APP_BIN) && exit /b 1)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-exe.ps1 -ExePath "$(APP_BIN)"
+else
+	@echo Code signing skipped (Windows only).
 endif
 
 ifeq ($(OS),Windows_NT)

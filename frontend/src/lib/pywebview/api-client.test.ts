@@ -34,6 +34,7 @@ function stubApi(overrides: Partial<PyWebViewApi> = {}): PyWebViewApi {
     remove_watermark_batch: vi.fn(),
     get_remove_watermark_progress: vi.fn(),
     cancel_remove_watermark_batch: vi.fn(),
+    fetch_google_sheet_rows: vi.fn(),
     ...overrides,
   };
 }

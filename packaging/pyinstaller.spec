@@ -12,6 +12,7 @@ frontend_dist = repo_root / "frontend" / "dist"
 app_icon = repo_root / "packaging" / "assets" / "josvn-icon.ico"
 app_name = os.environ.get("APP_NAME", "jos-one")
 version_file = spec_dir / "file_version_info.txt"
+app_manifest = spec_dir / "app.manifest"
 
 if not frontend_dist.is_dir():
     raise SystemExit(
@@ -68,4 +69,5 @@ exe = EXE(
     onefile=True,
     icon=str(app_icon),
     version=str(version_file) if sys.platform == "win32" and version_file.is_file() else None,
+    manifest=str(app_manifest) if sys.platform == "win32" and app_manifest.is_file() else None,
 )

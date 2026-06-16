@@ -15,7 +15,7 @@ import webview
 from python.api.js_api import JsApi
 from python.bridge.window_bridge import WindowBridge
 from python.config import (
-    APP_TITLE,
+    get_window_title,
     WINDOW_HEIGHT,
     WINDOW_WIDTH,
     get_app_env,
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     setup_logging(debug=is_development())
-    logger.info("Starting %s (env=%s)", APP_TITLE, get_app_env())
+    logger.info("Starting %s (env=%s)", get_window_title(), get_app_env())
 
     init_database()
     download_plugins_in_background()
@@ -44,7 +44,7 @@ def main() -> None:
     api = JsApi()
 
     window = webview.create_window(
-        APP_TITLE,
+        get_window_title(),
         url=url,
         js_api=api,
         width=WINDOW_WIDTH,
