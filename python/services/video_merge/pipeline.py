@@ -630,6 +630,7 @@ def _render_segment(
         source_width=src_w,
         source_height=src_h,
         source_fps=src_fps,
+        force_fps=True,
     )
 
     logo_file = config.logo_path

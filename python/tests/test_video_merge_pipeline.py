@@ -682,6 +682,39 @@ def test_render_segment_builds_filter_complex(tmp_path: Path) -> None:
     assert "nvenc" not in " ".join(cmd).lower()
 
 
+def test_render_segment_force_fps_for_near_export_fps(tmp_path: Path) -> None:
+    """29.97fps sources match export epsilon but must still get fps=30 for xfade join."""
+    src = tmp_path / "in.mp4"
+    dest = tmp_path / "out.mp4"
+    src.write_bytes(b"x")
+    captured: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        captured.append(cmd)
+        dest.write_bytes(b"ok")
+        return True, "", ""
+
+    config = _segment_config()
+
+    with (
+        patch.object(pipeline, "_run_ffmpeg", side_effect=fake_run),
+        patch.object(pipeline, "_probe_has_audio", return_value=True),
+        patch.object(pipeline, "_probe_source_duration", return_value=30.0),
+        patch.object(
+            pipeline,
+            "_probe_video_stream",
+            return_value=(1920, 1080, 29.97),
+        ),
+    ):
+        ok, err = pipeline._render_segment(
+            src, dest, config, 1.0, 1.0, Path("ffmpeg"), Path("ffprobe")
+        )
+
+    assert ok, err
+    fc = captured[0][captured[0].index("-filter_complex") + 1]
+    assert "fps=30" in fc
+
+
 def _segment_config(*, logo_path: str | None = None) -> ExportRenderConfig:
     return ExportRenderConfig(
         format_ext="mp4",
