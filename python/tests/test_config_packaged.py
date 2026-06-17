@@ -12,8 +12,8 @@ from python import config
 
 def test_get_window_title_includes_version(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_TITLE", "JOS One")
-    monkeypatch.setenv("APP_VERSION", "1.1.0")
-    assert config.get_window_title() == "JOS One v1.1.0"
+    monkeypatch.setenv("APP_VERSION", "1.1.1")
+    assert config.get_window_title() == "JOS One v1.1.1"
 
 
 def test_packaged_defaults_to_production_when_app_env_unset(
