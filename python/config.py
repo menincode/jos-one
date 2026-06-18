@@ -11,7 +11,7 @@ APP_DATA_DIR_NAME = "data"
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 DEV_SERVER_URL = os.getenv("DEV_SERVER_URL", "http://127.0.0.1:5173")
 APP_TITLE = os.getenv("APP_TITLE", "JOS One")
-APP_VERSION = os.getenv("APP_VERSION", "1.1.1")
+APP_VERSION = os.getenv("APP_VERSION", "1.1.2")
 APP_NAME = os.getenv("APP_NAME", "jos-one")
 APP_ICON_ICO = REPO_ROOT / "packaging" / "assets" / "josvn-icon.ico"
 

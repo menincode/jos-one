@@ -5,7 +5,7 @@ const brandAssetBase = import.meta.env.BASE_URL;
 export const JOSVN_BRAND = {
   name: "JOSVN",
   appName: "JOS One",
-  appVersion: "1.1.1",
+  appVersion: "1.1.2",
   tagline: "Hành trình không ngừng bước tới",
   taglineEn: "Journey Of Steps",
   website: "https://josvn.com/",

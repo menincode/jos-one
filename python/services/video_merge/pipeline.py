@@ -88,6 +88,11 @@ _FPS_MATCH_EPSILON = 0.05
 # Unified mix opens every source in one filter graph — fast for short rows, OOM on long ones.
 _UNIFIED_MAX_CLIPS = 4
 _UNIFIED_MAX_TOTAL_DURATION_SEC = 90 * 60
+# Chunked mix: unified pass per batch of clips, then join chunk files (long rows).
+_CHUNK_BATCH_SIZE = _UNIFIED_MAX_CLIPS
+# Pre-normalized segment joins: single-pass xfade is one libx264 pass; pairwise re-encodes
+# the growing partial output each step (O(n^2) wall time on 3h mixes — see app.log 2026-06-17).
+_XFADE_SINGLE_PASS_MAX_SEGMENTS = 20
 # Pairwise xfade keeps at most two decoded inputs in memory (vs N inputs in one graph).
 _XFADE_PAIRWISE_MIN_SEGMENTS = 3
 _FFMPEG_JOIN_RESOURCE_ARGS = ["-threads", "2", "-filter_threads", "1"]
@@ -752,9 +757,148 @@ def _concat_segments(
 
 def _should_use_unified_mix(clip_count: int, total_duration_sec: float) -> bool:
     """Single-pass mix is only safe for small rows (few clips, short total duration)."""
+    if clip_count <= 1:
+        return True
     return (
         clip_count <= _UNIFIED_MAX_CLIPS
         and total_duration_sec <= _UNIFIED_MAX_TOTAL_DURATION_SEC
+    )
+
+
+def _should_use_chunked_mix(clip_count: int, total_duration_sec: float) -> bool:
+    """Unified mix per batch of clips, then join chunks — for long rows."""
+    if clip_count <= 1:
+        return False
+    return not _should_use_unified_mix(clip_count, total_duration_sec)
+
+
+def _clip_batch_ranges(clip_count: int, batch_size: int) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    start = 0
+    while start < clip_count:
+        end = min(start + batch_size, clip_count)
+        ranges.append((start, end))
+        start = end
+    return ranges
+
+
+def _join_plan_slice(
+    full_plan: chapter_timestamps.JoinTransitionPlan,
+    start: int,
+    count: int,
+) -> chapter_timestamps.JoinTransitionPlan:
+    if count < 2 or not full_plan.use_xfade:
+        return chapter_timestamps.JoinTransitionPlan(False, (), ())
+    end = start + count - 1
+    return chapter_timestamps.JoinTransitionPlan(
+        True,
+        full_plan.transitions[start:end],
+        full_plan.overlaps[start:end],
+    )
+
+
+def _join_plan_chunk_boundaries(
+    full_plan: chapter_timestamps.JoinTransitionPlan,
+    batch_ranges: list[tuple[int, int]],
+) -> chapter_timestamps.JoinTransitionPlan:
+    if len(batch_ranges) < 2 or not full_plan.use_xfade:
+        return chapter_timestamps.JoinTransitionPlan(False, (), ())
+    transitions: list[str] = []
+    overlaps: list[float] = []
+    for index in range(len(batch_ranges) - 1):
+        boundary = batch_ranges[index][1] - 1
+        transitions.append(full_plan.transitions[boundary])
+        overlaps.append(full_plan.overlaps[boundary])
+    return chapter_timestamps.JoinTransitionPlan(
+        True,
+        tuple(transitions),
+        tuple(overlaps),
+    )
+
+
+def _render_mix_chunked(
+    *,
+    row_id: str,
+    sequence_paths: list[str],
+    effects: list[tuple[float, float]],
+    export_config: ExportRenderConfig,
+    output_path: Path,
+    temp_dir: Path,
+    ffmpeg_bin: Path,
+    ffprobe_bin: Path,
+    join_plan: chapter_timestamps.JoinTransitionPlan,
+    segment_durations: list[float],
+    probes: list[mix_filter_graph.ClipProbe],
+    on_chunk_progress: Callable[[float | None, float | None], None] | None,
+    on_join_progress: Callable[[float | None, float | None], None] | None,
+    cancel_check: Callable[[], bool],
+) -> tuple[bool, str, str]:
+    """Normalize + join up to _CHUNK_BATCH_SIZE clips per FFmpeg pass, then join chunks."""
+    batch_ranges = _clip_batch_ranges(len(sequence_paths), _CHUNK_BATCH_SIZE)
+    chunk_total = len(batch_ranges)
+    chunk_paths: list[Path] = []
+    last_log = ""
+
+    logger.info(
+        "Chunked mix row=%s clips=%s batches=%s batch_size=%s",
+        row_id,
+        len(sequence_paths),
+        chunk_total,
+        _CHUNK_BATCH_SIZE,
+    )
+
+    for batch_index, (start, end) in enumerate(batch_ranges):
+        if cancel_check():
+            return False, "Đã hủy.", last_log
+
+        batch_count = end - start
+        is_only_batch = chunk_total == 1
+        chunk_path = output_path if is_only_batch else temp_dir / f"chunk_{batch_index:04d}.mp4"
+        batch_join = _join_plan_slice(join_plan, start, batch_count)
+
+        logger.info(
+            "Chunk mix row=%s batch=%s/%s clips=%s..%s → %s",
+            row_id,
+            batch_index + 1,
+            chunk_total,
+            start,
+            end - 1,
+            chunk_path.name,
+        )
+
+        ok, msg, log = _render_mix_unified(
+            sequence_paths=sequence_paths[start:end],
+            effects=effects[start:end],
+            export_config=export_config,
+            output_path=chunk_path,
+            ffmpeg_bin=ffmpeg_bin,
+            ffprobe_bin=ffprobe_bin,
+            join_plan=batch_join,
+            segment_durations=segment_durations[start:end],
+            probes=probes[start:end],
+            on_progress=on_chunk_progress,
+            cancel_check=cancel_check,
+        )
+        if not ok:
+            return False, msg, log
+        last_log = log
+        chunk_paths.append(chunk_path)
+
+    if chunk_total == 1:
+        return True, "", last_log
+
+    chunk_join = _join_plan_chunk_boundaries(join_plan, batch_ranges)
+    return _join_segments(
+        chunk_paths,
+        output_path,
+        export_config,
+        ffmpeg_bin,
+        ffprobe_bin,
+        random.Random(0),
+        join_plan=chunk_join,
+        temp_dir=temp_dir,
+        on_progress=on_join_progress,
+        cancel_check=cancel_check,
     )
 
 
@@ -910,22 +1054,26 @@ def _xfade_segments(
     """Join normalized segments with chained xfade / acrossfade."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if len(segment_paths) >= _XFADE_PAIRWISE_MIN_SEGMENTS:
-        work_dir = temp_dir or output_path.parent
+        if len(segment_paths) > _XFADE_SINGLE_PASS_MAX_SEGMENTS:
+            work_dir = temp_dir or output_path.parent
+            logger.info(
+                "Using pairwise xfade join for %s segments (memory-safe)",
+                len(segment_paths),
+            )
+            return _xfade_segments_pairwise(
+                segment_paths,
+                output_path,
+                ffmpeg_bin,
+                ffprobe_bin,
+                join_plan,
+                work_dir,
+                on_progress=on_progress,
+                cancel_check=cancel_check,
+            )
         logger.info(
-            "Using pairwise xfade join for %s segments (memory-safe)",
+            "Using single-pass xfade join for %s pre-normalized segments",
             len(segment_paths),
         )
-        return _xfade_segments_pairwise(
-            segment_paths,
-            output_path,
-            ffmpeg_bin,
-            ffprobe_bin,
-            join_plan,
-            work_dir,
-            on_progress=on_progress,
-            cancel_check=cancel_check,
-        )
-
     durations: list[float] = []
     for path in segment_paths:
         probed = _probe_source_duration(str(path), ffprobe_bin)
@@ -1229,6 +1377,44 @@ def render_mix_row(
             segment_durations=segment_durations,
             probes=probes,
             on_progress=on_join_progress,
+            cancel_check=cancel_check,
+        )
+    elif _should_use_chunked_mix(n, total_duration):
+        batch_count = len(_clip_batch_ranges(n, _CHUNK_BATCH_SIZE))
+        logger.info(
+            "Chunked mix row=%s clips=%s total=%.0fs batches=%s",
+            row_id,
+            n,
+            total_duration,
+            batch_count,
+        )
+        emit_progress(None, None, "Mix video", ROW_PHASE_MIX_VIDEO)
+
+        def on_chunk_progress(dur: float | None, speed: float | None) -> None:
+            speed_s = f"{speed:.1f}x" if speed is not None else "—"
+            mm = int((dur or 0) // 60)
+            ss = int((dur or 0) % 60)
+            emit_progress(
+                dur,
+                speed,
+                f"Mix batch · {speed_s} · {mm:02d}:{ss:02d}",
+                ROW_PHASE_MIX_VIDEO,
+            )
+
+        ok, msg, log = _render_mix_chunked(
+            row_id=row_id,
+            sequence_paths=sequence_paths,
+            effects=effects,
+            export_config=export_config,
+            output_path=output_path,
+            temp_dir=temp_dir,
+            ffmpeg_bin=ffmpeg_bin,
+            ffprobe_bin=ffprobe_bin,
+            join_plan=join_plan,
+            segment_durations=segment_durations,
+            probes=probes,
+            on_chunk_progress=on_chunk_progress,
+            on_join_progress=on_join_progress,
             cancel_check=cancel_check,
         )
     else:

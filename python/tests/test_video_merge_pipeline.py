@@ -509,11 +509,25 @@ def test_render_mix_row_preserves_clip_input_order(tmp_path: Path) -> None:
 
 def test_should_use_unified_mix_thresholds() -> None:
     assert pipeline._should_use_unified_mix(4, 90 * 60)
+    assert pipeline._should_use_unified_mix(1, 91 * 60)
     assert not pipeline._should_use_unified_mix(5, 10.0)
     assert not pipeline._should_use_unified_mix(3, 91 * 60)
 
 
-def test_render_mix_row_uses_segmented_path_for_long_rows(tmp_path: Path) -> None:
+def test_should_use_chunked_mix_thresholds() -> None:
+    assert not pipeline._should_use_chunked_mix(1, 100.0)
+    assert not pipeline._should_use_chunked_mix(3, 60 * 60)
+    assert pipeline._should_use_chunked_mix(3, 91 * 60)
+    assert pipeline._should_use_chunked_mix(13, 3 * 3600)
+
+
+def test_clip_batch_ranges() -> None:
+    assert pipeline._clip_batch_ranges(13, 4) == [(0, 4), (4, 8), (8, 12), (12, 13)]
+    assert pipeline._clip_batch_ranges(3, 4) == [(0, 3)]
+
+
+def test_render_mix_row_uses_chunked_unified_for_long_single_batch(tmp_path: Path) -> None:
+    """Long row with ≤4 clips uses one unified batch (no per-clip normalize pool)."""
     srcs = [tmp_path / f"in{i}.mp4" for i in range(3)]
     for src in srcs:
         src.write_bytes(b"x")
@@ -535,12 +549,14 @@ def test_render_mix_row_uses_segmented_path_for_long_rows(tmp_path: Path) -> Non
         concurrency=2,
         scene_transition="none",
     )
-    pool_calls: list[int] = []
+    unified_calls: list[int] = []
     join_calls: list[list[Path]] = []
 
-    def fake_render_segments(self, tasks, **kwargs):
-        pool_calls.append(len(tasks))
-        return [task.dest_path for task in tasks]
+    def fake_unified(*, sequence_paths, output_path, **kwargs):
+        unified_calls.append(len(sequence_paths))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"ok")
+        return True, "", "time=00:02:00.00 speed=2.0x"
 
     def fake_join(segment_paths, output_path, *args, **kwargs):
         join_calls.append(list(segment_paths))
@@ -552,11 +568,7 @@ def test_render_mix_row_uses_segmented_path_for_long_rows(tmp_path: Path) -> Non
         patch.object(pipeline, "_get_binaries", return_value=(Path("ffmpeg"), Path("ffprobe"))),
         patch.object(pipeline, "_probe_source_duration", return_value=4000.0),
         patch.object(pipeline, "_probe_has_audio", return_value=False),
-        patch.object(
-            ffmpeg_pool.FfmpegTaskPool,
-            "render_segments",
-            fake_render_segments,
-        ),
+        patch.object(pipeline, "_render_mix_unified", side_effect=fake_unified),
         patch.object(pipeline, "_join_segments", side_effect=fake_join),
     ):
         ok, msg, _, _, _chaptime = pipeline.render_mix_row(
@@ -569,13 +581,74 @@ def test_render_mix_row_uses_segmented_path_for_long_rows(tmp_path: Path) -> Non
         )
 
     assert ok, msg
-    assert pool_calls == [3]
+    assert unified_calls == [3]
+    assert join_calls == []
+    assert out.is_file()
+
+
+def test_render_mix_row_uses_chunked_path_for_many_clips(tmp_path: Path) -> None:
+    """Long row with >4 clips: unified per batch of 4, then join chunks."""
+    srcs = [tmp_path / f"in{i}.mp4" for i in range(9)]
+    for src in srcs:
+        src.write_bytes(b"x")
+    out = tmp_path / "mix.mp4"
+    row_temp = tmp_path / "row"
+    config = ExportRenderConfig(
+        format_ext="mp4",
+        width=320,
+        height=240,
+        fps=15,
+        zoom_min=1.0,
+        zoom_max=1.0,
+        speed_min=1.0,
+        speed_max=1.0,
+        logo_path=None,
+        logo_position="bottom_right",
+        duration_min_sec=10,
+        duration_max_sec=7200,
+        concurrency=2,
+        scene_transition="none",
+    )
+    unified_calls: list[int] = []
+    join_calls: list[list[Path]] = []
+
+    def fake_unified(*, sequence_paths, output_path, **kwargs):
+        unified_calls.append(len(sequence_paths))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"ok")
+        return True, "", "time=00:02:00.00 speed=2.0x"
+
+    def fake_join(segment_paths, output_path, *args, **kwargs):
+        join_calls.append(list(segment_paths))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"ok")
+        return True, "", "time=00:02:00.00 speed=2.0x"
+
+    with (
+        patch.object(pipeline, "_get_binaries", return_value=(Path("ffmpeg"), Path("ffprobe"))),
+        patch.object(pipeline, "_probe_source_duration", return_value=4000.0),
+        patch.object(pipeline, "_probe_has_audio", return_value=False),
+        patch.object(pipeline, "_render_mix_unified", side_effect=fake_unified),
+        patch.object(pipeline, "_join_segments", side_effect=fake_join),
+    ):
+        ok, msg, _, _, _chaptime = pipeline.render_mix_row(
+            row_id="mix-many",
+            sequence_paths=[str(s) for s in srcs],
+            export_config=config,
+            output_path=out,
+            temp_dir=row_temp,
+            cancel_check=lambda: False,
+        )
+
+    assert ok, msg
+    assert unified_calls == [4, 4, 1]
     assert len(join_calls) == 1
     assert len(join_calls[0]) == 3
     assert out.is_file()
 
 
-def test_join_segments_xfade_pairwise_for_three_segments(tmp_path: Path) -> None:
+def test_join_segments_xfade_single_pass_for_three_segments(tmp_path: Path) -> None:
+    """Pre-normalized segments use one FFmpeg pass (not O(n^2) pairwise re-encode)."""
     segs = [tmp_path / f"seg{i}.mp4" for i in range(3)]
     for seg in segs:
         seg.write_bytes(b"x")
@@ -622,7 +695,61 @@ def test_join_segments_xfade_pairwise_for_three_segments(tmp_path: Path) -> None
         )
 
     assert ok, msg
-    assert len(captured) == 2
+    assert len(captured) == 1
+    assert captured[0].count("-i") == 3
+    fc = captured[0][captured[0].index("-filter_complex") + 1]
+    assert "xfade=transition=" in fc
+
+
+def test_join_segments_xfade_pairwise_when_segment_count_exceeds_single_pass_limit(tmp_path: Path) -> None:
+    count = pipeline._XFADE_SINGLE_PASS_MAX_SEGMENTS + 1
+    segs = [tmp_path / f"seg{i}.mp4" for i in range(count)]
+    for seg in segs:
+        seg.write_bytes(b"x")
+    out = tmp_path / "mix.mp4"
+    captured: list[list[str]] = []
+
+    config = ExportRenderConfig(
+        format_ext="mp4",
+        width=320,
+        height=240,
+        fps=15,
+        zoom_min=1.0,
+        zoom_max=1.0,
+        speed_min=1.0,
+        speed_max=1.0,
+        logo_path=None,
+        logo_position="bottom_right",
+        duration_min_sec=10,
+        duration_max_sec=120,
+        concurrency=1,
+        scene_transition="fade",
+        transition_duration_min_sec=0.5,
+        transition_duration_max_sec=0.5,
+    )
+
+    def fake_run(cmd, **kwargs):
+        captured.append(cmd)
+        Path(cmd[-1]).write_bytes(b"ok")
+        return True, "", "time=00:00:10.00 speed=2.0x"
+
+    with (
+        patch.object(pipeline, "_run_ffmpeg", side_effect=fake_run),
+        patch.object(pipeline, "_probe_source_duration", return_value=10.0),
+        patch.object(pipeline, "_probe_has_audio", return_value=True),
+    ):
+        ok, msg, _log = pipeline._join_segments(
+            segs,
+            out,
+            config,
+            Path("ffmpeg"),
+            Path("ffprobe"),
+            random.Random(1),
+            temp_dir=tmp_path / "work",
+        )
+
+    assert ok, msg
+    assert len(captured) == count - 1
     assert all(cmd.count("-i") == 2 for cmd in captured)
     assert all("xfade=transition=" in cmd[cmd.index("-filter_complex") + 1] for cmd in captured)
 
