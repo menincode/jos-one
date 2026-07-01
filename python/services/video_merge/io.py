@@ -62,7 +62,7 @@ class ExportRenderConfig:
     duration_min_sec: float
     duration_max_sec: float
     concurrency: int
-    scene_transition: str = "fade"
+    scene_transition: str = "none"
     transition_duration_min_sec: float = 0.4
     transition_duration_max_sec: float = 0.8
 
@@ -146,7 +146,7 @@ def parse_export_settings(
     concurrency = max(1, min(16, concurrency))
 
     scene_transition = _get_str(
-        raw, "sceneTransition", "scene_transition", default="fade"
+        raw, "sceneTransition", "scene_transition", default="none"
     ).lower()
     transition_min = _parse_float(
         raw, "transitionDurationMinSec", "transition_duration_min_sec", default=0.4
@@ -611,3 +611,23 @@ def open_media_file(file_path: str) -> dict[str, str | bool]:
 
 def default_export_settings_dict() -> dict[str, str]:
     return dict(DEFAULT_VIDEO_EXPORT)
+
+
+def open_video_file_dialog(bridge: Any, directory: str = "") -> dict[str, str | bool]:
+    initial = _resolve_initial_directory(directory)
+    try:
+        result = bridge.window.create_file_dialog(
+            webview.FileDialog.OPEN,
+            directory=initial,
+            allow_multiple=False,
+            file_types=VIDEO_FILE_TYPES,
+        )
+    except Exception as exc:
+        logger.exception("open video file dialog failed")
+        return {"ok": False, "path": "", "message": f"Không mở được hộp thoại: {exc}"}
+
+    if not result:
+        return {"ok": False, "path": "", "message": "Đã hủy chọn file."}
+
+    chosen = result[0] if isinstance(result, (list, tuple)) else result
+    return {"ok": True, "path": str(Path(str(chosen)).resolve()), "message": ""}

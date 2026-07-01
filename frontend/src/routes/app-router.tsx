@@ -8,6 +8,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { APP_SCOPES } from "@/lib/auth/scopes";
 import { NoAccessPage } from "@/pages/no-access-page";
 import { RemoveWatermarkPage } from "@/pages/remove-watermark-page";
+import { VideoLoopPage } from "@/pages/video-loop-page";
 import { VideoMergePage } from "@/pages/video-merge-page";
 
 export function AppRouter() {
@@ -24,6 +25,9 @@ export function AppRouter() {
             <Route path="/prompt" element={<DefaultAppRedirect />} />
             <Route element={<ScopeProtectedRoute scope={APP_SCOPES.REMOVE_WATERMARK_WRITE} />}>
               <Route path="/watermark" element={<RemoveWatermarkPage />} />
+            </Route>
+            <Route element={<ScopeProtectedRoute scope={APP_SCOPES.VIDEO_LOOP_WRITE} />}>
+              <Route path="/loop" element={<VideoLoopPage />} />
             </Route>
             <Route path="/settings" element={<DefaultAppRedirect />} />
             <Route path="/overview" element={<Navigate to="/" replace />} />

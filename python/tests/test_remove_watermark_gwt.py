@@ -7,6 +7,7 @@ from pathlib import Path
 from python.services.remove_watermark.service import (
     DEFAULT_BACKEND_ID,
     GWT_VEO_BACKEND_ID,
+    FFMPEG_CROP_BACKEND_ID,
     get_remove_logo_backend,
     parse_gwt_progress_percent,
     resolve_veo_watermark_remover_binary,
@@ -23,9 +24,14 @@ def test_parse_gwt_progress_percent_ignores_denoiser_strength_log() -> None:
     assert parse_gwt_progress_percent(blob) is None
 
 
-def test_default_backend_is_gwt_veo() -> None:
-    assert DEFAULT_BACKEND_ID == GWT_VEO_BACKEND_ID
+def test_default_backend_is_ffmpeg_crop() -> None:
+    assert DEFAULT_BACKEND_ID == FFMPEG_CROP_BACKEND_ID
     backend = get_remove_logo_backend(DEFAULT_BACKEND_ID)
+    assert backend.backend_id == FFMPEG_CROP_BACKEND_ID
+
+
+def test_gwt_veo_still_registered() -> None:
+    backend = get_remove_logo_backend(GWT_VEO_BACKEND_ID)
     assert backend.backend_id == GWT_VEO_BACKEND_ID
 
 

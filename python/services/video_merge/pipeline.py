@@ -546,8 +546,13 @@ def _build_video_filter_chain(
     else:
         parts.append(f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black")
     if force_fps or not skip_target_scale:
-        parts.append(f"fps={fps}")
-    parts.extend([f"setpts=PTS/{speed_div}", "format=yuv420p"])
+        # Speed adjustment must come BEFORE fps so the fps filter normalises
+        # the already-sped-up stream to a clean CFR timebase.
+        # Wrong order (fps → setpts/speed) causes PTS drift → muxer dups.
+        parts.extend([f"setpts=PTS/{speed_div}", f"fps={fps}"])
+    else:
+        parts.append(f"setpts=PTS/{speed_div}")
+    parts.extend(["format=yuv420p", "setsar=1"])
     return ",".join(parts)
 
 
@@ -753,6 +758,63 @@ def _concat_segments(
     )
     ok, msg, log = _run_ffmpeg(cmd, on_stderr_line=on_line, cancel_check=cancel_check)
     return ok, msg, log
+
+
+_FAST_CONCAT_VIDEO_CODECS = {"h264", "hevc", "h265", "vp9", "av1"}
+_FAST_CONCAT_AUDIO_CODECS = {"aac", "mp3", "opus", "vorbis", "flac", "pcm_s16le"}
+_FAST_CONCAT_FPS_EPS = 0.5
+_FAST_CONCAT_SAR_OK = {(0, 1), (1, 1), (0, 0)}  # unspecified or square
+
+
+def _can_fast_concat(
+    probes: list[mix_filter_graph.ClipProbe],
+    export_config: ExportRenderConfig,
+    join_plan: chapter_timestamps.JoinTransitionPlan,
+    effects: list[tuple[float, float]],
+) -> bool:
+    """Return True when all source clips can be concatenated with -c copy (no re-encode).
+
+    Fast path conditions:
+    - No xfade transition (concat demuxer only works with identical streams)
+    - No logo overlay
+    - All clips: speed == 1.0, zoom == 1.0
+    - All clips: same resolution as export target
+    - All clips: fps matches export target (within tolerance)
+    - All clips: video codec is a supported passthrough codec
+    """
+    if join_plan.use_xfade:
+        return False
+
+    # No logo
+    if export_config.logo_path and Path(export_config.logo_path).is_file():
+        return False
+
+    # Config-level check: if speed/zoom ranges exclude 1.0, fast path is impossible
+    if (
+        abs(export_config.speed_min - 1.0) > 0.001
+        or abs(export_config.speed_max - 1.0) > 0.001
+        or abs(export_config.zoom_min - 1.0) > 0.001
+        or abs(export_config.zoom_max - 1.0) > 0.001
+    ):
+        return False
+
+    # Per-effect sanity check (effects are drawn from above ranges, but verify)
+    for zoom, speed in effects:
+        if abs(zoom - 1.0) > 0.001 or abs(speed - 1.0) > 0.001:
+            return False
+
+    target_w, target_h, target_fps = export_config.width, export_config.height, export_config.fps
+
+    for probe in probes:
+        # Resolution must match export target
+        if probe.source_width != target_w or probe.source_height != target_h:
+            return False
+        # FPS must be close to export target
+        if probe.source_fps is None or abs(probe.source_fps - target_fps) > _FAST_CONCAT_FPS_EPS:
+            return False
+
+    logger.info("Fast-concat path eligible: %d clips — skipping per-clip encode", len(probes))
+    return True
 
 
 def _should_use_unified_mix(clip_count: int, total_duration_sec: float) -> bool:
@@ -1364,6 +1426,31 @@ def render_mix_row(
             ROW_PHASE_CONCAT,
         )
 
+    # ── Fast path: concat source files directly without re-encoding ──────────
+    if _can_fast_concat(probes, export_config, join_plan, effects):
+        logger.info(
+            "Fast-concat row=%s clips=%d (no encode, -c copy)", row_id, n
+        )
+        emit_progress(None, None, "Ghép nhanh (-c copy)", ROW_PHASE_CONCAT)
+        src_paths = [Path(p) for p in sequence_paths]
+        ok, msg, log = _concat_segments(
+            src_paths,
+            output_path,
+            ffmpeg_bin,
+            on_progress=on_join_progress,
+            cancel_check=cancel_check,
+        )
+        if not ok:
+            return False, msg, last_duration, last_speed, ""
+        final_dur = _parse_duration_from_log(log) or last_duration
+        final_speed = _parse_speed_from_log(log) or last_speed
+        if final_dur is None:
+            probed_dur = _probe_source_duration(str(output_path), ffprobe_bin)
+            if probed_dur is not None:
+                final_dur = probed_dur
+        return True, "", final_dur, final_speed, chaptime
+
+    # ── Normal encode paths ───────────────────────────────────────────────────
     if _should_use_unified_mix(n, total_duration):
         emit_progress(None, None, "Mix video", ROW_PHASE_MIX_VIDEO)
         ok, msg, log = _render_mix_unified(

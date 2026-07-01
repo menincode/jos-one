@@ -3,6 +3,7 @@ import type { AppUser } from "@/types/app-user";
 export const APP_SCOPES = {
   VIDEO_EDITOR_WRITE: "video_editor:write",
   REMOVE_WATERMARK_WRITE: "remove_watermark:write",
+  VIDEO_LOOP_WRITE: "video_loop:write",
 } as const;
 
 export type AppScope = (typeof APP_SCOPES)[keyof typeof APP_SCOPES];
@@ -26,7 +27,14 @@ export function parseScopes(raw: unknown): string[] {
     .filter(Boolean);
 }
 
+function isAdmin(user: AppUser | null | undefined): boolean {
+  return user?.role?.trim().toLowerCase() === "admin";
+}
+
 export function hasScope(user: AppUser | null | undefined, scope: AppScope): boolean {
+  if (isAdmin(user)) {
+    return true;
+  }
   if (!user?.scopes?.length) {
     return false;
   }
@@ -39,6 +47,9 @@ export function getDefaultAppPath(user: AppUser | null | undefined): string {
   }
   if (hasScope(user, APP_SCOPES.REMOVE_WATERMARK_WRITE)) {
     return "/watermark";
+  }
+  if (hasScope(user, APP_SCOPES.VIDEO_LOOP_WRITE)) {
+    return "/loop";
   }
   return "/no-access";
 }

@@ -168,6 +168,7 @@ export interface BridgeRemoveWatermarkSettings {
   input_folder: string;
   output_folder: string;
   thread_count: number;
+  zoom_percent: number;
 }
 
 export interface GoogleSheetRowsResult {
@@ -223,6 +224,7 @@ export interface PyWebViewApi {
     input_folder: string,
     output_folder: string,
     thread_count: number,
+    zoom_percent: number,
   ) => Promise<BridgeRemoveWatermarkSettings>;
   list_watermark_videos_in_folder: (
     input_folder: string,
@@ -234,11 +236,28 @@ export interface PyWebViewApi {
       input_path: string;
       output_path: string;
       bbox_pixels?: [number, number, number, number];
+      zoom_percent?: number;
     }>,
     thread_count: number,
   ) => Promise<WatermarkVideoRow[]>;
   get_remove_watermark_progress: () => Promise<WatermarkProgressSnapshot[]>;
   cancel_remove_watermark_batch: () => Promise<{ ok: boolean }>;
+  open_video_file_dialog: (directory: string) => Promise<FolderDialogResult>;
+  get_video_loop_settings: () => Promise<BridgeVideoLoopSettings>;
+  save_video_loop_settings: (
+    input_folder: string,
+    output_folder: string,
+    loop_count: number,
+    thread_count: number,
+  ) => Promise<BridgeVideoLoopSettings>;
+  start_video_loop_job: (
+    input_folder: string,
+    output_folder: string,
+    loop_count: number,
+    thread_count: number,
+  ) => Promise<{ ok: boolean; message: string }>;
+  get_video_loop_job_status: () => Promise<BridgeVideoLoopJobStatus>;
+  cancel_video_loop_job: () => Promise<{ ok: boolean }>;
 }
 
 export interface BridgeFfmpegStatus {
@@ -294,6 +313,7 @@ export interface BridgeClient {
     input_folder: string,
     output_folder: string,
     thread_count: number,
+    zoom_percent: number,
   ) => Promise<BridgeRemoveWatermarkSettings>;
   listWatermarkVideosInFolder: (
     input_folder: string,
@@ -304,11 +324,28 @@ export interface BridgeClient {
       file_name: string;
       input_path: string;
       output_path: string;
+      zoom_percent?: number;
     }>,
     thread_count: number,
   ) => Promise<WatermarkVideoRowRecord[]>;
   getRemoveWatermarkProgress: () => Promise<WatermarkProgressSnapshot[]>;
   cancelRemoveWatermarkBatch: () => Promise<boolean>;
+  openVideoFileDialog: (directory?: string) => Promise<FolderDialogResult>;
+  getVideoLoopSettings: () => Promise<BridgeVideoLoopSettings>;
+  saveVideoLoopSettings: (
+    input_folder: string,
+    output_folder: string,
+    loop_count: number,
+    thread_count: number,
+  ) => Promise<BridgeVideoLoopSettings>;
+  startVideoLoopJob: (
+    input_folder: string,
+    output_folder: string,
+    loop_count: number,
+    thread_count: number,
+  ) => Promise<{ ok: boolean; message: string }>;
+  getVideoLoopJobStatus: () => Promise<BridgeVideoLoopJobStatus>;
+  cancelVideoLoopJob: () => Promise<{ ok: boolean }>;
   call: <T>(method: keyof PyWebViewApi, ...args: unknown[]) => Promise<T>;
 }
 
@@ -319,6 +356,37 @@ export type WatermarkVideoRowRecord = {
   status: string;
   progressPct: number;
 };
+
+export interface BridgeVideoLoopSettings {
+  input_folder: string;
+  output_folder: string;
+  loop_count: number;
+  thread_count: number;
+}
+
+export type VideoLoopJobStatus = "idle" | "running" | "done" | "error" | "cancelled";
+
+export type VideoLoopFileRowStatus = "pending" | "running" | "done" | "error" | "cancelled";
+
+export interface VideoLoopFileStatus {
+  file_name: string;
+  input_path: string;
+  status: VideoLoopFileRowStatus;
+  progress_pct: number;
+  output_path: string;
+  speed_x: number | null;
+}
+
+export interface BridgeVideoLoopJobStatus {
+  status: VideoLoopJobStatus;
+  message: string;
+  progress: number;
+  output_path: string;
+  speed_x: number | null;
+  total_files: number;
+  done_files: number;
+  file_statuses: VideoLoopFileStatus[];
+}
 
 declare global {
   interface Window {

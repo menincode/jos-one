@@ -34,4 +34,5 @@ export interface RemoveWatermarkSettings {
   input_folder: string;
   output_folder: string;
   thread_count: number;
+  zoom_percent: number;
 }

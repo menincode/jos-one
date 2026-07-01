@@ -15,9 +15,10 @@ logger = logging.getLogger(__name__)
 
 def _normalize_scene_transition(value: str) -> str:
     clean = value.strip().lower()
-    if clean in ("fade", "none", "wipe", "slide", "dissolve"):
+    from python.services.video_merge.transition_spec import XFADE_TRANSITIONS
+    if clean in ("none", "random") or clean in XFADE_TRANSITIONS:
         return clean
-    return "fade"
+    return "none"
 
 KEY_LOGIN_REMEMBER = "login.remember_account"
 KEY_LOGIN_USERNAME = "login.username"
@@ -31,6 +32,12 @@ KEY_VIDEO_MIX_ROWS = "video_merge.mix_rows"
 KEY_WATERMARK_INPUT = "remove_watermark.input_folder"
 KEY_WATERMARK_OUTPUT = "remove_watermark.output_folder"
 KEY_WATERMARK_THREADS = "remove_watermark.thread_count"
+KEY_WATERMARK_ZOOM = "remove_watermark.zoom_percent"
+
+KEY_LOOP_INPUT = "video_loop.input_folder"
+KEY_LOOP_OUTPUT = "video_loop.output_folder"
+KEY_LOOP_COUNT = "video_loop.loop_count"
+KEY_LOOP_THREADS = "video_loop.thread_count"
 
 DEFAULT_VIDEO_EXPORT: dict[str, str] = {
     "format": "mp4",
@@ -45,7 +52,7 @@ DEFAULT_VIDEO_EXPORT: dict[str, str] = {
     "concurrency": "4",
     "logoPath": "",
     "logoPosition": "bottom_right",
-    "sceneTransition": "fade",
+    "sceneTransition": "none",
     "transitionDurationMinSec": "0.4",
     "transitionDurationMaxSec": "0.8",
 }
@@ -96,7 +103,7 @@ def _normalize_export_settings(raw: dict[str, Any]) -> dict[str, str]:
         elif value is not None:
             merged[key] = str(value)
     merged["sceneTransition"] = _normalize_scene_transition(
-        str(merged.get("sceneTransition", "fade"))
+        str(merged.get("sceneTransition", "none"))
     )
     return merged
 
@@ -213,16 +220,22 @@ def save_video_merge_settings(
     return get_video_merge_settings()
 
 
-def get_remove_watermark_settings() -> dict[str, str | int]:
+def get_remove_watermark_settings() -> dict[str, str | int | float]:
     raw_threads = get_setting(KEY_WATERMARK_THREADS, "4").strip()
     try:
         thread_count = max(1, min(32, int(raw_threads)))
     except ValueError:
         thread_count = 4
+    raw_zoom = get_setting(KEY_WATERMARK_ZOOM, "4.0").strip()
+    try:
+        zoom_percent = max(1.0, min(30.0, float(raw_zoom)))
+    except ValueError:
+        zoom_percent = 4.0
     return {
         "input_folder": get_setting(KEY_WATERMARK_INPUT, ""),
         "output_folder": get_setting(KEY_WATERMARK_OUTPUT, ""),
         "thread_count": thread_count,
+        "zoom_percent": zoom_percent,
     }
 
 
@@ -230,9 +243,46 @@ def save_remove_watermark_settings(
     input_folder: str,
     output_folder: str,
     thread_count: int,
-) -> dict[str, str | int]:
+    zoom_percent: float = 4.0,
+) -> dict[str, str | int | float]:
     safe_threads = max(1, min(32, int(thread_count or 1)))
+    safe_zoom = max(1.0, min(30.0, float(zoom_percent or 4.0)))
     set_setting(KEY_WATERMARK_INPUT, input_folder.strip())
     set_setting(KEY_WATERMARK_OUTPUT, output_folder.strip())
     set_setting(KEY_WATERMARK_THREADS, str(safe_threads))
+    set_setting(KEY_WATERMARK_ZOOM, f"{safe_zoom:.1f}")
     return get_remove_watermark_settings()
+
+
+def get_video_loop_settings() -> dict[str, str | int]:
+    raw_count = get_setting(KEY_LOOP_COUNT, "10").strip()
+    try:
+        loop_count = max(2, min(100, int(raw_count)))
+    except ValueError:
+        loop_count = 10
+    raw_threads = get_setting(KEY_LOOP_THREADS, "4").strip()
+    try:
+        thread_count = max(1, min(32, int(raw_threads)))
+    except ValueError:
+        thread_count = 4
+    return {
+        "input_folder": get_setting(KEY_LOOP_INPUT, ""),
+        "output_folder": get_setting(KEY_LOOP_OUTPUT, ""),
+        "loop_count": loop_count,
+        "thread_count": thread_count,
+    }
+
+
+def save_video_loop_settings(
+    input_folder: str,
+    output_folder: str,
+    loop_count: int,
+    thread_count: int,
+) -> dict[str, str | int]:
+    safe_count = max(2, min(100, int(loop_count or 10)))
+    safe_threads = max(1, min(32, int(thread_count or 4)))
+    set_setting(KEY_LOOP_INPUT, input_folder.strip())
+    set_setting(KEY_LOOP_OUTPUT, output_folder.strip())
+    set_setting(KEY_LOOP_COUNT, str(safe_count))
+    set_setting(KEY_LOOP_THREADS, str(safe_threads))
+    return get_video_loop_settings()

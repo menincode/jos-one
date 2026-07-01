@@ -29,7 +29,9 @@ if _height.isdigit():
 
 def get_window_title() -> str:
     """Native window title bar text (includes app version)."""
-    return f"{APP_TITLE} v{APP_VERSION}"
+    title = os.getenv("APP_TITLE", APP_TITLE)
+    version = os.getenv("APP_VERSION", APP_VERSION)
+    return f"{title} v{version}"
 
 
 def window_start_maximized() -> bool:

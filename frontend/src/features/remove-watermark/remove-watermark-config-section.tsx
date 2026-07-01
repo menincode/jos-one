@@ -8,12 +8,14 @@ type RemoveWatermarkConfigSectionProps = {
   inputFolder: string;
   outputFolder: string;
   threadCount: number;
+  zoomPercent: number;
   onInputFolderChange: (
     value: string,
     options?: { immediate?: boolean },
   ) => void;
   onOutputFolderChange: (value: string) => void;
   onThreadCountChange: (value: number) => void;
+  onZoomPercentChange: (value: number) => void;
   disabled?: boolean;
 };
 
@@ -21,13 +23,15 @@ export function RemoveWatermarkConfigSection({
   inputFolder,
   outputFolder,
   threadCount,
+  zoomPercent,
   onInputFolderChange,
   onOutputFolderChange,
   onThreadCountChange,
+  onZoomPercentChange,
   disabled = false,
 }: RemoveWatermarkConfigSectionProps) {
   return (
-    <div className="grid gap-3 lg:grid-cols-[1fr_1fr_minmax(7rem,9rem)] lg:items-end">
+    <div className="grid gap-3 lg:grid-cols-[1fr_1fr_minmax(7rem,9rem)_minmax(7rem,9rem)] lg:items-end">
       <FolderPathField
         id="watermark-input-folder"
         label="Thư mục video đầu vào"
@@ -62,6 +66,24 @@ export function RemoveWatermarkConfigSection({
           min={1}
           max={32}
           placeholder="4"
+          compact
+        />
+      </ExportField>
+      <ExportField
+        label="Tỷ lệ Zoom (%)"
+        title="Tỷ lệ phóng to video trước khi crop để xóa watermark. Mặc định là 4.0%."
+      >
+        <ExportNumberInput
+          id="watermark-zoom-percent"
+          value={String(zoomPercent)}
+          onChange={(value) =>
+            onZoomPercentChange(Math.max(1.0, Math.min(30.0, Number(value) || 4.0)))
+          }
+          disabled={disabled}
+          min={1}
+          max={30}
+          step="0.1"
+          placeholder="4.0"
           compact
         />
       </ExportField>

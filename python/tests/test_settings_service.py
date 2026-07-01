@@ -61,7 +61,7 @@ def test_video_merge_settings_round_trip(temp_db: Path) -> None:
 def test_video_merge_defaults_when_empty(temp_db: Path) -> None:
     loaded = svc.get_video_merge_settings()
     assert loaded["input_folder"] == ""
-    assert loaded["export_settings"]["durationMinSec"] == "60"
+    assert loaded["export_settings"]["durationMinSec"] == "3600"
     assert json.loads(
         json.dumps(loaded["export_settings"])
     ) == svc.DEFAULT_VIDEO_EXPORT

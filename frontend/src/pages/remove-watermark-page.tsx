@@ -56,6 +56,7 @@ export function RemoveWatermarkPage() {
     inputFolder,
     outputFolder,
     threadCount,
+    zoomPercent,
     rows,
     loadingRows,
     busy,
@@ -66,6 +67,7 @@ export function RemoveWatermarkPage() {
     setInputFolder,
     setOutputFolder,
     setThreadCount,
+    setZoomPercent,
     loadVideos,
     startBatch,
     stopBatch,
@@ -102,7 +104,6 @@ export function RemoveWatermarkPage() {
       className="flex min-h-[calc(100vh-12rem)] flex-col gap-3"
       title="Xóa watermark"
       icon={Eraser}
-      subtitle="Xóa logo/watermark VEO bằng công cụ ffmpeg (Gemini Watermark Tool)."
     >
       <section
         className="shrink-0 rounded-[var(--app-radius-card,1.125rem)] border p-3"
@@ -116,6 +117,7 @@ export function RemoveWatermarkPage() {
           inputFolder={inputFolder}
           outputFolder={outputFolder}
           threadCount={threadCount}
+          zoomPercent={zoomPercent}
           onInputFolderChange={(value, options) => {
             setInputFolder(value);
             if (options?.immediate && value.trim()) {
@@ -124,6 +126,7 @@ export function RemoveWatermarkPage() {
           }}
           onOutputFolderChange={setOutputFolder}
           onThreadCountChange={setThreadCount}
+          onZoomPercentChange={setZoomPercent}
           disabled={formDisabled}
         />
       </section>

@@ -190,27 +190,36 @@ function normalizeThreadCount(raw: unknown): number {
   return Math.max(1, Math.min(32, Math.floor(parsed)));
 }
 
+function normalizeLogoZoomPercent(raw: unknown): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return 4.0;
+  }
+  return Math.max(1.0, Math.min(30.0, parsed));
+}
+
 function loadRemoveWatermarkFromLocalStorage(): RemoveWatermarkSettings {
   if (!canUseStorage()) {
-    return { input_folder: "", output_folder: "", thread_count: 4 };
+    return { input_folder: "", output_folder: "", thread_count: 4, zoom_percent: 4.0 };
   }
   try {
     const raw = localStorage.getItem(REMOVE_WATERMARK_SETTINGS_STORAGE_KEY);
     if (!raw) {
-      return { input_folder: "", output_folder: "", thread_count: 4 };
+      return { input_folder: "", output_folder: "", thread_count: 4, zoom_percent: 4.0 };
     }
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null) {
-      return { input_folder: "", output_folder: "", thread_count: 4 };
+      return { input_folder: "", output_folder: "", thread_count: 4, zoom_percent: 4.0 };
     }
     const data = parsed as Partial<RemoveWatermarkSettings>;
     return {
       input_folder: typeof data.input_folder === "string" ? data.input_folder : "",
       output_folder: typeof data.output_folder === "string" ? data.output_folder : "",
       thread_count: normalizeThreadCount(data.thread_count),
+      zoom_percent: normalizeLogoZoomPercent(data.zoom_percent),
     };
   } catch {
-    return { input_folder: "", output_folder: "", thread_count: 4 };
+    return { input_folder: "", output_folder: "", thread_count: 4, zoom_percent: 4.0 };
   }
 }
 
@@ -221,6 +230,7 @@ function saveRemoveWatermarkToLocalStorage(
     input_folder: settings.input_folder.trim(),
     output_folder: settings.output_folder.trim(),
     thread_count: normalizeThreadCount(settings.thread_count),
+    zoom_percent: normalizeLogoZoomPercent(settings.zoom_percent),
   };
   if (canUseStorage()) {
     localStorage.setItem(REMOVE_WATERMARK_SETTINGS_STORAGE_KEY, JSON.stringify(next));
@@ -313,6 +323,7 @@ async function readRemoveWatermarkFromBackend(): Promise<RemoveWatermarkSettings
     input_folder: result.input_folder?.trim() ?? "",
     output_folder: result.output_folder?.trim() ?? "",
     thread_count: normalizeThreadCount(result.thread_count),
+    zoom_percent: normalizeLogoZoomPercent(result.zoom_percent),
   };
 }
 
@@ -630,6 +641,7 @@ export async function persistRemoveWatermarkSettings(
     input_folder: settings.input_folder.trim(),
     output_folder: settings.output_folder.trim(),
     thread_count: normalizeThreadCount(settings.thread_count),
+    zoom_percent: normalizeLogoZoomPercent(settings.zoom_percent),
   };
 
   if (!isPywebviewShell()) {
@@ -652,11 +664,13 @@ export async function persistRemoveWatermarkSettings(
     payload.input_folder,
     payload.output_folder,
     payload.thread_count,
+    payload.zoom_percent,
   );
   const next: RemoveWatermarkSettings = {
     input_folder: result.input_folder?.trim() ?? "",
     output_folder: result.output_folder?.trim() ?? "",
     thread_count: normalizeThreadCount(result.thread_count),
+    zoom_percent: normalizeLogoZoomPercent(result.zoom_percent),
   };
   removeWatermarkCache = next;
   removeWatermarkCacheFromBridge = true;

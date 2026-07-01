@@ -25,6 +25,7 @@ export function useRemoveWatermarkState() {
   const [inputFolder, setInputFolder] = useState("");
   const [outputFolder, setOutputFolder] = useState("");
   const [threadCount, setThreadCount] = useState(4);
+  const [zoomPercent, setZoomPercent] = useState(4.0);
   const [rows, setRows] = useState<WatermarkVideoRowRecord[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -37,12 +38,14 @@ export function useRemoveWatermarkState() {
     input_folder: "",
     output_folder: "",
     thread_count: 4,
+    zoom_percent: 4.0,
   });
 
   latestSettingsRef.current = {
     input_folder: inputFolder,
     output_folder: outputFolder,
     thread_count: threadCount,
+    zoom_percent: zoomPercent,
   };
 
   useEffect(() => {
@@ -62,6 +65,7 @@ export function useRemoveWatermarkState() {
         setInputFolder(settings.input_folder);
         setOutputFolder(settings.output_folder);
         setThreadCount(settings.thread_count);
+        setZoomPercent(settings.zoom_percent ?? 4.0);
       } catch {
         /* settings optional on first run */
       } finally {
@@ -82,7 +86,7 @@ export function useRemoveWatermarkState() {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [hydrated, inputFolder, outputFolder, threadCount]);
+  }, [hydrated, inputFolder, outputFolder, threadCount, zoomPercent]);
 
   const loadVideos = useCallback(
     async (folder: string) => {
@@ -197,6 +201,7 @@ export function useRemoveWatermarkState() {
           file_name: row.fileName,
           input_path: row.inputPath,
           output_path: row.outputPath,
+          zoom_percent: zoomPercent,
         })),
         threads,
       );
@@ -296,6 +301,7 @@ export function useRemoveWatermarkState() {
     inputFolder,
     outputFolder,
     threadCount,
+    zoomPercent,
     rows,
     loadingRows,
     busy,
@@ -305,6 +311,7 @@ export function useRemoveWatermarkState() {
     setInputFolder,
     setOutputFolder,
     setThreadCount,
+    setZoomPercent,
     loadVideos,
     startBatch,
     stopBatch,

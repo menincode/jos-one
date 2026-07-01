@@ -169,10 +169,10 @@ def test_smoke_cancel_mid_job(
 
     def slow_render(**kwargs):  # type: ignore[no-untyped-def]
         if merge_job.is_merge_cancelled():
-            return False, "Đã hủy.", None, None
+            return False, "Đã hủy.", None, None, None
         time.sleep(1.0)
         if merge_job.is_merge_cancelled():
-            return False, "Đã hủy.", None, None
+            return False, "Đã hủy.", None, None, None
         return original_render(**kwargs)
 
     with patch.object(merge_job.pipeline, "render_mix_row", side_effect=slow_render):
@@ -230,8 +230,8 @@ def test_job_done_when_one_row_succeeds_one_fails(
         if row_id == "ok-row":
             out_path = kwargs["output_path"]
             Path(out_path).write_bytes(b"fake-mp4-content")
-            return True, "", 12.5, 2.0
-        return False, "Lỗi giả lập", None, None
+            return True, "", 12.5, 2.0, None
+        return False, "Lỗi giả lập", None, None, None
 
     with patch.object(merge_job.io, "list_videos_in_folder") as mock_list:
         mock_list.return_value = {

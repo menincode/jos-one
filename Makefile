@@ -54,8 +54,10 @@ UV_RUN ?= $(UV) run
 APP_BIN := dist/$(APP_NAME)$(EXE_EXT)
 ICON_ASSET := packaging/assets/josvn-icon.ico
 UPX ?= upx
-# UPX 5.x: PyInstaller onefile PEs use CFG — need --force (see upx CantPackException).
-UPX_FLAGS ?= --force
+# PyInstaller onefile PEs have CFG (Control Flow Guard) enabled.
+# --force is required to override CFG check; --lzma gives best compression.
+# Signing happens before AND after UPX so SAC sees valid Authenticode on the packed binary.
+UPX_FLAGS ?= --force --lzma
 
 export APP_ENV
 
@@ -64,7 +66,8 @@ export APP_ENV
 
 help:
 	@echo "Targets: install, start (default), local, dev, prod, build, package, clean"
-	@echo "  build / package -> dist/$(APP_NAME)$(EXE_EXT) (PyInstaller + UPX)"
+	@echo "  build / package -> dist/$(APP_NAME)$(EXE_EXT) (PyInstaller -> sign -> UPX -> sign)"
+	@echo "  Order: pyinstaller -> package-sign -> package-upx -> package-sign (SAC-safe)"
 	@echo "Tools: UV=$(UV) YARN=$(YARN)"
 
 install: sync-uv deps-frontend
@@ -125,7 +128,8 @@ build-icon: sync-uv
 
 build: package
 
-package: install deps-frontend-build package-pyinstaller package-upx package-sign
+# Build order: pyinstaller -> sign (pre-UPX, for SAC reputation) -> upx -> sign (post-UPX, final Authenticode)
+package: install deps-frontend-build package-pyinstaller package-sign package-upx package-sign
 
 package-pyinstaller: sync-uv deps-frontend-build
 ifeq ($(OS),Windows_NT)

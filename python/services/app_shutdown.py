@@ -35,6 +35,13 @@ def shutdown_ffmpeg_workers() -> None:
     except Exception:
         logger.exception("Failed to stop FFmpeg workers on exit")
 
+    try:
+        from python.services.video_loop import shutdown_video_loop_on_app_exit
+
+        shutdown_video_loop_on_app_exit()
+    except Exception:
+        logger.exception("Failed to stop video loop on exit")
+
 
 def register_app_shutdown_hooks() -> None:
     """Register process-level cleanup (backup if the window close hook is skipped)."""

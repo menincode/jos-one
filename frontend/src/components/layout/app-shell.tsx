@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Eraser, Film } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eraser, Film, Repeat } from "lucide-react";
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
@@ -14,9 +14,10 @@ import { useAuthStore } from "@/stores/auth-store";
 const NAV_ICONS = {
   videoMerge: Film,
   watermark: Eraser,
+  videoLoop: Repeat,
 } as const;
 
-const WORKSPACE_ROUTES = new Set(["/", "/watermark", "/no-access"]);
+const WORKSPACE_ROUTES = new Set(["/", "/watermark", "/loop", "/no-access"]);
 
 export function AppShell() {
   const { colors, typography } = APP_DARK_THEME;

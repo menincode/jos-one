@@ -14,6 +14,7 @@ from python.services.video_merge.io import (
     open_input_folder_dialog,
     open_media_file,
     open_output_folder_dialog,
+    open_video_file_dialog,
     validate_merge_folders,
 )
 from python.services.plugin_downloader import get_ffmpeg_status
@@ -23,10 +24,17 @@ from python.services.remove_watermark.service import RemoveLogoInput
 from python.services.settings_service import (
     get_login_settings,
     get_remove_watermark_settings,
+    get_video_loop_settings,
     get_video_merge_settings,
     save_login_settings,
     save_remove_watermark_settings,
+    save_video_loop_settings,
     save_video_merge_settings,
+)
+from python.services.video_loop import (
+    cancel_video_loop_job,
+    get_video_loop_job_status,
+    start_video_loop_job,
 )
 from python.services.video_merge.google_sheet import fetch_google_sheet_rows
 from python.services.video_merge.job import (
@@ -220,15 +228,18 @@ class JsApi(JsApiBase):
         input_folder: str,
         output_folder: str,
         thread_count: int,
-    ) -> dict[str, str | int]:
+        zoom_percent: float = 4.0,
+    ) -> dict[str, str | int | float]:
         if not isinstance(input_folder, str) or not isinstance(output_folder, str):
             raise ValueError(
                 "save_remove_watermark_settings: input_folder and output_folder must be strings"
             )
         if not isinstance(thread_count, int):
             raise ValueError("save_remove_watermark_settings: thread_count must be an integer")
+        if not isinstance(zoom_percent, (int, float)):
+            raise ValueError("save_remove_watermark_settings: zoom_percent must be a number")
         return self._safe_return(
-            save_remove_watermark_settings(input_folder, output_folder, thread_count)
+            save_remove_watermark_settings(input_folder, output_folder, thread_count, zoom_percent)
         )
 
     def list_watermark_videos_in_folder(
@@ -274,12 +285,20 @@ class JsApi(JsApiBase):
                     )
                 except (TypeError, ValueError):
                     bbox = None
+            zoom_raw = row.get("zoom_percent") or row.get("zoomPercent")
+            zoom: float | None = None
+            if zoom_raw is not None:
+                try:
+                    zoom = float(zoom_raw)
+                except (TypeError, ValueError):
+                    zoom = None
             safe_rows.append(
                 RemoveLogoInput(
                     file_name=file_name,
                     input_path=input_path,
                     output_path=output_path,
                     bbox_pixels=bbox,
+                    zoom_percent=zoom,
                 )
             )
         service = get_remove_watermark_service()
@@ -304,3 +323,59 @@ class JsApi(JsApiBase):
     def cancel_remove_watermark_batch(self) -> dict[str, bool]:
         get_remove_watermark_service().request_cancel()
         return self._safe_return({"ok": True})
+
+    # ── Video Loop ────────────────────────────────────────────────────────
+
+    def open_video_file_dialog(self, directory: str = "") -> dict[str, str | bool]:
+        if self._bridge is None:
+            return self._safe_return(
+                {"ok": False, "path": "", "message": "Bridge chưa sẵn sàng."}
+            )
+        if not isinstance(directory, str):
+            raise ValueError("open_video_file_dialog: directory must be a string")
+        return self._safe_return(open_video_file_dialog(self._bridge, directory))
+
+    def get_video_loop_settings(self) -> dict[str, str | int]:
+        return self._safe_return(get_video_loop_settings())
+
+    def save_video_loop_settings(
+        self,
+        input_folder: str,
+        output_folder: str,
+        loop_count: int,
+        thread_count: int,
+    ) -> dict[str, str | int]:
+        if not isinstance(input_folder, str) or not isinstance(output_folder, str):
+            raise ValueError(
+                "save_video_loop_settings: input_folder and output_folder must be strings"
+            )
+        if not isinstance(loop_count, int):
+            raise ValueError("save_video_loop_settings: loop_count must be an integer")
+        if not isinstance(thread_count, int):
+            raise ValueError("save_video_loop_settings: thread_count must be an integer")
+        return self._safe_return(
+            save_video_loop_settings(input_folder, output_folder, loop_count, thread_count)
+        )
+
+    def start_video_loop_job(
+        self,
+        input_folder: str,
+        output_folder: str,
+        loop_count: int,
+        thread_count: int,
+    ) -> dict[str, str | bool]:
+        if not isinstance(input_folder, str) or not isinstance(output_folder, str):
+            raise ValueError("start_video_loop_job: paths must be strings")
+        if not isinstance(loop_count, int):
+            raise ValueError("start_video_loop_job: loop_count must be an integer")
+        if not isinstance(thread_count, int):
+            raise ValueError("start_video_loop_job: thread_count must be an integer")
+        return self._safe_return(
+            start_video_loop_job(input_folder, output_folder, loop_count, thread_count)
+        )
+
+    def get_video_loop_job_status(self) -> dict:
+        return self._safe_return(get_video_loop_job_status())
+
+    def cancel_video_loop_job(self) -> dict[str, bool]:
+        return self._safe_return(cancel_video_loop_job())

@@ -30,7 +30,12 @@ DEFAULT_LOGO_BBOX = (0.905, 0.900, 0.092, 0.092)
 
 FFMPEG_DELOGO_BACKEND_ID = "ffmpeg_delogo"
 GWT_VEO_BACKEND_ID = "gwt_veo_watermark"
-DEFAULT_BACKEND_ID = GWT_VEO_BACKEND_ID
+FFMPEG_CROP_BACKEND_ID = "ffmpeg_crop"
+DEFAULT_BACKEND_ID = FFMPEG_CROP_BACKEND_ID
+
+DEFAULT_LOGO_ZOOM_PERCENT = 4.0
+MIN_LOGO_ZOOM_PERCENT = 1.0
+MAX_LOGO_ZOOM_PERCENT = 30.0
 
 # Bundled Veo Watermark Remover / GeminiWatermarkTool-Video (see plugin/ffmpge.exe).
 GWT_VEO_BINARY_NAMES = ("ffmpge.exe", "GeminiWatermarkTool-Video.exe", "ffmpge")
@@ -385,6 +390,8 @@ class RemoveLogoInput:
     output_path: str
     bbox_pixels: tuple[int, int, int, int] | None = None
     """Optional pixel-based delogo rect ``(x, y, w, h)``. Falls back to :data:`DEFAULT_LOGO_BBOX` when ``None``."""
+    zoom_percent: float | None = None
+    """Optional zoom percent for crop/scale backend. Falls back to :data:`DEFAULT_LOGO_ZOOM_PERCENT` when ``None``."""
 
 
 @dataclass(frozen=True)
@@ -741,8 +748,274 @@ class GwtVeoWatermarkBackend(RemoveLogoBackend):
         )
 
 
+def normalize_logo_zoom_percent(zoom_percent: float | None) -> float:
+    if zoom_percent is None or zoom_percent <= 0:
+        return DEFAULT_LOGO_ZOOM_PERCENT
+    if zoom_percent < MIN_LOGO_ZOOM_PERCENT:
+        return MIN_LOGO_ZOOM_PERCENT
+    if zoom_percent > MAX_LOGO_ZOOM_PERCENT:
+        return MAX_LOGO_ZOOM_PERCENT
+    return float(zoom_percent)
+
+
+def logo_scale_factor_from_zoom_percent(zoom_percent: float | None) -> float:
+    return 1.0 + normalize_logo_zoom_percent(zoom_percent) / 100.0
+
+
+def compute_crop_scale_top_right_plan(
+    vw: int,
+    vh: int,
+    zoom_percent: float | None,
+) -> tuple[int, int, int, int, int, int]:
+    if vw < 1 or vh < 1:
+        raise ValueError(f"invalid video dimensions: {vw}x{vh}")
+    scale_factor = logo_scale_factor_from_zoom_percent(zoom_percent)
+    scaled_w = max(vw + 1, int(vw * scale_factor + 0.5))
+    scaled_h = max(vh + 1, int(vh * scale_factor + 0.5))
+    crop_x = max(0, scaled_w - vw)
+    return scaled_w, scaled_h, crop_x, 0, vw, vh
+
+
+def build_crop_scale_video_filter(vw: int, vh: int, zoom_percent: float | None) -> str:
+    scaled_w, scaled_h, crop_x, crop_y, out_w, out_h = compute_crop_scale_top_right_plan(vw, vh, zoom_percent)
+    return f"scale={scaled_w}:{scaled_h},crop={out_w}:{out_h}:{crop_x}:{crop_y}"
+
+
+class FfmpegCropBackend(RemoveLogoBackend):
+    """Remove watermark via upscale (zoom) and top-right anchored crop, preserving original resolution."""
+
+    @property
+    def backend_id(self) -> str:
+        return FFMPEG_CROP_BACKEND_ID
+
+    def process(
+        self,
+        ctx: RemoveLogoExecutionContext,
+        row: RemoveLogoInput,
+        source: Path,
+        target: Path,
+    ) -> RemoveLogoResult:
+        if _ctx_is_cancelled(ctx):
+            return _cancelled_result(row)
+
+        ffmpeg = ctx.ffmpeg_path
+        ffprobe = ctx.ffprobe_path
+        emit = ctx.report_progress
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        dims = probe_video_size(ffprobe, source)
+        if not dims:
+            LOGGER.error("remove-logo: could not read video size via ffprobe (%s)", source)
+            return RemoveLogoResult(
+                file_name=row.file_name,
+                input_path=row.input_path,
+                output_path=row.output_path,
+                status="failed",
+                progress_pct=0,
+            )
+        vw, vh = dims
+        try:
+            crop_filter = build_crop_scale_video_filter(vw, vh, row.zoom_percent)
+        except ValueError:
+            LOGGER.error("remove-logo: invalid dimensions from probe (%s) -> %dx%d", source, vw, vh)
+            return RemoveLogoResult(
+                file_name=row.file_name,
+                input_path=row.input_path,
+                output_path=row.output_path,
+                status="failed",
+                progress_pct=0,
+            )
+        duration_sec = probe_video_duration_seconds(ffprobe, source)
+        LOGGER.info(
+            "remove-logo crop: %s size=%dx%d filter=%s zoom=%s",
+            source.name,
+            vw,
+            vh,
+            crop_filter,
+            normalize_logo_zoom_percent(row.zoom_percent),
+        )
+
+        def emit_pct(pct: int) -> None:
+            if emit is not None:
+                emit(pct)
+
+        def paths_equal(p1: Path, p2: Path) -> bool:
+            try:
+                return p1.resolve() == p2.resolve()
+            except OSError:
+                return p1.absolute() == p2.absolute()
+
+        in_place = paths_equal(source, target)
+        encode_target = target
+        temp_path: Path | None = None
+        if in_place:
+            temp_path = target.parent / f"{target.stem}.veo3-crop-tmp{target.suffix}"
+            encode_target = temp_path
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
+            LOGGER.info("remove-logo crop: in-place output — writing temp file %s", temp_path.name)
+
+        def cleanup_temp() -> None:
+            if temp_path and temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
+
+        def finalize_output() -> bool:
+            if not temp_path:
+                return True
+            try:
+                if target.exists():
+                    target.unlink()
+                temp_path.rename(target)
+                return True
+            except Exception as exc:
+                LOGGER.error("remove-logo crop: finalize output failed from %s to %s: %s", temp_path, target, exc)
+                return False
+
+        cmd_copy_audio = [
+            ffmpeg,
+            "-y",
+            "-hide_banner",
+            "-stats_period",
+            "0.5",
+            "-loglevel",
+            "info",
+            "-i",
+            str(source),
+            "-vf",
+            crop_filter,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "18",
+            "-c:a",
+            "copy",
+            str(encode_target),
+        ]
+        cmd_encode_audio = [
+            ffmpeg,
+            "-y",
+            "-hide_banner",
+            "-stats_period",
+            "0.5",
+            "-loglevel",
+            "info",
+            "-i",
+            str(source),
+            "-vf",
+            crop_filter,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "18",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            str(encode_target),
+        ]
+
+        code, copy_tail = _run_ffmpeg_with_progress(
+            cmd_copy_audio,
+            duration_sec=duration_sec,
+            emit=emit_pct,
+            span_lo=0,
+            span_hi=99,
+            cancel_event=ctx.cancel_event,
+            register_subprocess=ctx.register_subprocess,
+            unregister_subprocess=ctx.unregister_subprocess,
+        )
+        if _ctx_is_cancelled(ctx):
+            cleanup_temp()
+            return _cancelled_result(row)
+
+        if code == 0:
+            if finalize_output():
+                emit_pct(100)
+                return RemoveLogoResult(
+                    file_name=row.file_name,
+                    input_path=row.input_path,
+                    output_path=row.output_path,
+                    status="completed",
+                    progress_pct=100,
+                )
+            cleanup_temp()
+            return RemoveLogoResult(
+                file_name=row.file_name,
+                input_path=row.input_path,
+                output_path=row.output_path,
+                status="failed",
+                progress_pct=0,
+            )
+
+        LOGGER.warning(
+            "remove-logo crop copy-audio failed: input=%s output=%s err=%s",
+            source,
+            target,
+            copy_tail[-240:],
+        )
+        code2, enc_tail = _run_ffmpeg_with_progress(
+            cmd_encode_audio,
+            duration_sec=duration_sec,
+            emit=emit_pct,
+            span_lo=0,
+            span_hi=99,
+            cancel_event=ctx.cancel_event,
+            register_subprocess=ctx.register_subprocess,
+            unregister_subprocess=ctx.unregister_subprocess,
+        )
+        if _ctx_is_cancelled(ctx):
+            cleanup_temp()
+            return _cancelled_result(row)
+
+        if code2 != 0:
+            LOGGER.error(
+                "remove-logo crop encode-audio failed: input=%s output=%s err=%s",
+                source,
+                target,
+                enc_tail[-240:],
+            )
+            cleanup_temp()
+            return RemoveLogoResult(
+                file_name=row.file_name,
+                input_path=row.input_path,
+                output_path=row.output_path,
+                status="failed",
+                progress_pct=0,
+            )
+
+        if finalize_output():
+            emit_pct(100)
+            return RemoveLogoResult(
+                file_name=row.file_name,
+                input_path=row.input_path,
+                output_path=row.output_path,
+                status="completed",
+                progress_pct=100,
+            )
+        cleanup_temp()
+        return RemoveLogoResult(
+            file_name=row.file_name,
+            input_path=row.input_path,
+            output_path=row.output_path,
+            status="failed",
+            progress_pct=0,
+        )
+
+
 register_remove_logo_backend(GWT_VEO_BACKEND_ID, lambda: GwtVeoWatermarkBackend(), replace=True)
 register_remove_logo_backend(FFMPEG_DELOGO_BACKEND_ID, lambda: FfmpegDelogoBackend(), replace=True)
+register_remove_logo_backend(FFMPEG_CROP_BACKEND_ID, lambda: FfmpegCropBackend(), replace=True)
 
 
 class RemoveWatermarkService:

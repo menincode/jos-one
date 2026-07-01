@@ -14,6 +14,8 @@ import type {
   BridgeLoginSettings,
   BridgeLoginUser,
   BridgeRemoveWatermarkSettings,
+  BridgeVideoLoopJobStatus,
+  BridgeVideoLoopSettings,
   BridgeVideoMergeSettings,
   FolderDialogResult,
   ListVideosResult,
@@ -226,15 +228,18 @@ function createMockClient(): BridgeClient {
       input_folder: "",
       output_folder: "",
       thread_count: 4,
+      zoom_percent: 4.0,
     }),
     saveRemoveWatermarkSettings: async (
       input_folder: string,
       output_folder: string,
       thread_count: number,
+      zoom_percent: number,
     ) => ({
       input_folder: input_folder.trim(),
       output_folder: output_folder.trim(),
       thread_count,
+      zoom_percent,
     }),
     listWatermarkVideosInFolder: async (input_folder: string) => {
       const listed = mockListVideosInFolder(input_folder);
@@ -261,6 +266,43 @@ function createMockClient(): BridgeClient {
       ),
     getRemoveWatermarkProgress: async () => [],
     cancelRemoveWatermarkBatch: async () => true,
+    openVideoFileDialog: async () => ({
+      ok: true,
+      path: "C:\\Videos\\demo.mp4",
+      message: "",
+    }),
+    getVideoLoopSettings: async () => ({
+      input_folder: "",
+      output_folder: "",
+      loop_count: 10,
+      thread_count: 4,
+    }),
+    saveVideoLoopSettings: async (
+      input_folder: string,
+      output_folder: string,
+      loop_count: number,
+      thread_count: number,
+    ) => ({
+      input_folder: input_folder.trim(),
+      output_folder: output_folder.trim(),
+      loop_count,
+      thread_count,
+    }),
+    startVideoLoopJob: async () => ({
+      ok: true,
+      message: "[mock] loop started",
+    }),
+    getVideoLoopJobStatus: async () => ({
+      status: "idle" as const,
+      message: "",
+      progress: 0,
+      output_path: "",
+      speed_x: null,
+      total_files: 0,
+      done_files: 0,
+      file_statuses: [],
+    }),
+    cancelVideoLoopJob: async () => ({ ok: true }),
     call: async <T>() => ({}) as T,
   };
 }
@@ -367,12 +409,14 @@ function createRealClient(api: PyWebViewApi): BridgeClient {
       input_folder: string,
       output_folder: string,
       thread_count: number,
+      zoom_percent: number,
     ) =>
       call<BridgeRemoveWatermarkSettings>(
         "save_remove_watermark_settings",
         input_folder,
         output_folder,
         thread_count,
+        zoom_percent,
       ),
     listWatermarkVideosInFolder: async (input_folder: string, output_folder?: string) => {
       const rows = await call<WatermarkVideoRow[]>(
@@ -387,6 +431,7 @@ function createRealClient(api: PyWebViewApi): BridgeClient {
         file_name: v.file_name,
         input_path: v.input_path,
         output_path: v.output_path,
+        zoom_percent: v.zoom_percent,
       }));
       const rows = await call<WatermarkVideoRow[]>(
         "remove_watermark_batch",
@@ -407,6 +452,40 @@ function createRealClient(api: PyWebViewApi): BridgeClient {
       const res = await call<{ ok?: boolean }>("cancel_remove_watermark_batch");
       return res?.ok === true;
     },
+    openVideoFileDialog: (directory = "") =>
+      call<FolderDialogResult>("open_video_file_dialog", directory),
+    getVideoLoopSettings: () =>
+      call<BridgeVideoLoopSettings>("get_video_loop_settings"),
+    saveVideoLoopSettings: (
+      input_folder: string,
+      output_folder: string,
+      loop_count: number,
+      thread_count: number,
+    ) =>
+      call<BridgeVideoLoopSettings>(
+        "save_video_loop_settings",
+        input_folder,
+        output_folder,
+        loop_count,
+        thread_count,
+      ),
+    startVideoLoopJob: (
+      input_folder: string,
+      output_folder: string,
+      loop_count: number,
+      thread_count: number,
+    ) =>
+      call<{ ok: boolean; message: string }>(
+        "start_video_loop_job",
+        input_folder,
+        output_folder,
+        loop_count,
+        thread_count,
+      ),
+    getVideoLoopJobStatus: () =>
+      call<BridgeVideoLoopJobStatus>("get_video_loop_job_status"),
+    cancelVideoLoopJob: () =>
+      call<{ ok: boolean }>("cancel_video_loop_job"),
     call,
   };
 }

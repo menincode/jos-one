@@ -11,7 +11,6 @@ export function NoAccessPage() {
       className="flex min-h-[calc(100vh-12rem)] flex-col"
       title="Chưa có quyền truy cập"
       icon={ShieldAlert}
-      subtitle="Tài khoản của bạn chưa được cấp quyền sử dụng tính năng trong ứng dụng."
     >
       <WorkspacePanel className="flex min-h-0 flex-1 flex-col">
         <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 text-center">

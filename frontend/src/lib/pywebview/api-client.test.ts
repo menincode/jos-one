@@ -35,6 +35,12 @@ function stubApi(overrides: Partial<PyWebViewApi> = {}): PyWebViewApi {
     get_remove_watermark_progress: vi.fn(),
     cancel_remove_watermark_batch: vi.fn(),
     fetch_google_sheet_rows: vi.fn(),
+    open_video_file_dialog: vi.fn(),
+    get_video_loop_settings: vi.fn(),
+    save_video_loop_settings: vi.fn(),
+    start_video_loop_job: vi.fn(),
+    get_video_loop_job_status: vi.fn(),
+    cancel_video_loop_job: vi.fn(),
     ...overrides,
   };
 }

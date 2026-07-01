@@ -216,7 +216,7 @@ export const DEFAULT_EXPORT_SETTINGS: VideoMergeExportSettings = {
   concurrency: "4",
   logoPath: "",
   logoPosition: "bottom_right",
-  sceneTransition: "fade",
+  sceneTransition: "none",
   transitionDurationMinSec: "0.4",
   transitionDurationMaxSec: "0.8",
 };

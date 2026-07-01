@@ -77,6 +77,13 @@ export const APP_NAV_ITEMS = [
     iconTone: "teal",
     requiredScope: "remove_watermark:write",
   },
+  {
+    id: "videoLoop",
+    path: "/loop",
+    label: "Loop video",
+    iconTone: "green",
+    requiredScope: "video_loop:write",
+  },
 ] as const satisfies ReadonlyArray<{
   id: string;
   path: string;
