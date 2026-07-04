@@ -1,0 +1,523 @@
+---
+name: testing-spring-boot
+description: Best practices and patterns for Spring Boot testing
+---
+
+# Spring Boot Testing
+
+## Description
+
+Spring Boot testing with JUnit 5, Mockito, TestContainers, and Spring Test slices. Comprehensive testing strategies for unit, integration, and E2E tests.
+
+## When to Use
+
+- Testing Spring Boot applications
+- Unit testing services and repositories
+- Integration testing with databases
+- Testing REST controllers
+- Testing with real containers
+
+---
+
+## Core Patterns
+
+### Test Structure
+
+```
+src/test/java/com/example/app/
+â”œâ”€â”€ unit/
+â”‚   â”œâ”€â”€ service/
+â”‚   â”‚   â””â”€â”€ UserServiceTest.java
+â”‚   â””â”€â”€ repository/
+â”‚       â””â”€â”€ UserRepositoryTest.java
+â”œâ”€â”€ integration/
+â”‚   â”œâ”€â”€ controller/
+â”‚   â”‚   â””â”€â”€ UserControllerIntegrationTest.java
+â”‚   â””â”€â”€ repository/
+â”‚       â””â”€â”€ UserRepositoryIntegrationTest.java
+â””â”€â”€ e2e/
+    â””â”€â”€ UserE2ETest.java
+```
+
+### Unit Test - Service Layer
+
+```java
+// unit/service/UserServiceTest.java
+package com.example.app.unit.service;
+
+import com.example.app.dto.UserRequestDto;
+import com.example.app.dto.UserResponseDto;
+import com.example.app.entity.User;
+import com.example.app.repository.UserRepository;
+import com.example.app.service.UserService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class UserServiceTest {
+    
+    @Mock
+    private UserRepository userRepository;
+    
+    @InjectMocks
+    private UserService userService;
+    
+    private User testUser;
+    
+    @BeforeEach
+    void setUp() {
+        testUser = new User();
+        testUser.setId(1L);
+        testUser.setEmail("test@example.com");
+        testUser.setName("Test User");
+    }
+    
+    @Test
+    void shouldFindUserById() {
+        // Given
+        when(userRepository.findById(1L)).thenReturn(Optional.of(testUser));
+        
+        // When
+        Optional<UserResponseDto> result = userService.findById(1L);
+        
+        // Then
+        assertThat(result).isPresent();
+        assertThat(result.get().getEmail()).isEqualTo("test@example.com");
+        verify(userRepository, times(1)).findById(1L);
+    }
+    
+    @Test
+    void shouldCreateUser() {
+        // Given
+        UserRequestDto request = new UserRequestDto();
+        request.setEmail("new@example.com");
+        request.setName("New User");
+        
+        when(userRepository.existsByEmail("new@example.com")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenReturn(testUser);
+        
+        // When
+        UserResponseDto result = userService.create(request);
+        
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getEmail()).isEqualTo("test@example.com");
+        verify(userRepository, times(1)).save(any(User.class));
+    }
+    
+    @Test
+    void shouldThrowExceptionWhenEmailExists() {
+        // Given
+        UserRequestDto request = new UserRequestDto();
+        request.setEmail("existing@example.com");
+        
+        when(userRepository.existsByEmail("existing@example.com")).thenReturn(true);
+        
+        // When & Then
+        assertThatThrownBy(() -> userService.create(request))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Email already exists");
+    }
+}
+```
+
+### Integration Test - Controller with MockMvc
+
+```java
+// integration/controller/UserControllerIntegrationTest.java
+package com.example.app.integration.controller;
+
+import com.example.app.controller.UserController;
+import com.example.app.service.UserService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+@WebMvcTest(UserController.class)
+class UserControllerIntegrationTest {
+    
+    @Autowired
+    private MockMvc mockMvc;
+    
+    @MockBean
+    private UserService userService;
+    
+    @Autowired
+    private ObjectMapper objectMapper;
+    
+    @Test
+    void shouldCreateUser() throws Exception {
+        // Given
+        UserRequestDto request = new UserRequestDto();
+        request.setEmail("test@example.com");
+        request.setName("Test User");
+        
+        UserResponseDto response = new UserResponseDto();
+        response.setId(1L);
+        response.setEmail("test@example.com");
+        response.setName("Test User");
+        
+        when(userService.create(any(UserRequestDto.class))).thenReturn(response);
+        
+        // When & Then
+        mockMvc.perform(post("/api/v1/users")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.id").value(1L))
+            .andExpect(jsonPath("$.email").value("test@example.com"))
+            .andExpect(jsonPath("$.name").value("Test User"));
+    }
+    
+    @Test
+    void shouldReturnBadRequestWhenInvalidInput() throws Exception {
+        // Given
+        UserRequestDto request = new UserRequestDto();
+        request.setEmail("invalid-email");
+        
+        // When & Then
+        mockMvc.perform(post("/api/v1/users")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isBadRequest());
+    }
+}
+```
+
+### Integration Test - Repository with @DataJpaTest
+
+```java
+// integration/repository/UserRepositoryIntegrationTest.java
+package com.example.app.integration.repository;
+
+import com.example.app.entity.User;
+import com.example.app.repository.UserRepository;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@DataJpaTest
+class UserRepositoryIntegrationTest {
+    
+    @Autowired
+    private TestEntityManager entityManager;
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Test
+    void shouldFindByEmail() {
+        // Given
+        User user = new User();
+        user.setEmail("test@example.com");
+        user.setName("Test User");
+        entityManager.persistAndFlush(user);
+        
+        // When
+        Optional<User> found = userRepository.findByEmail("test@example.com");
+        
+        // Then
+        assertThat(found).isPresent();
+        assertThat(found.get().getName()).isEqualTo("Test User");
+    }
+    
+    @Test
+    void shouldReturnTrueWhenEmailExists() {
+        // Given
+        User user = new User();
+        user.setEmail("existing@example.com");
+        user.setName("Existing User");
+        entityManager.persistAndFlush(user);
+        
+        // When
+        boolean exists = userRepository.existsByEmail("existing@example.com");
+        
+        // Then
+        assertThat(exists).isTrue();
+    }
+}
+```
+
+### Integration Test with TestContainers
+
+```java
+// integration/UserServiceIntegrationTest.java
+package com.example.app.integration;
+
+import com.example.app.dto.UserRequestDto;
+import com.example.app.dto.UserResponseDto;
+import com.example.app.service.UserService;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Testcontainers
+class UserServiceIntegrationTest {
+    
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine")
+            .withDatabaseName("testdb")
+            .withUsername("test")
+            .withPassword("test");
+    
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", postgres::getJdbcUrl);
+        registry.add("spring.datasource.username", postgres::getUsername);
+        registry.add("spring.datasource.password", postgres::getPassword);
+    }
+    
+    @Autowired
+    private UserService userService;
+    
+    @Test
+    void shouldCreateAndFindUser() {
+        // Given
+        UserRequestDto request = new UserRequestDto();
+        request.setEmail("test@example.com");
+        request.setName("Test User");
+        
+        // When
+        UserResponseDto created = userService.create(request);
+        UserResponseDto found = userService.findById(created.getId()).orElseThrow();
+        
+        // Then
+        assertThat(found.getEmail()).isEqualTo("test@example.com");
+        assertThat(found.getName()).isEqualTo("Test User");
+    }
+}
+```
+
+### E2E Test with TestRestTemplate
+
+```java
+// e2e/UserE2ETest.java
+package com.example.app.e2e;
+
+import com.example.app.dto.UserRequestDto;
+import com.example.app.dto.UserResponseDto;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class UserE2ETest {
+    
+    @LocalServerPort
+    private int port;
+    
+    @Autowired
+    private TestRestTemplate restTemplate;
+    
+    @Test
+    void shouldCreateAndRetrieveUser() {
+        // Given
+        String baseUrl = "http://localhost:" + port + "/api/v1/users";
+        UserRequestDto request = new UserRequestDto();
+        request.setEmail("e2e@example.com");
+        request.setName("E2E Test User");
+        
+        // When - Create user
+        ResponseEntity<UserResponseDto> createResponse = restTemplate.postForEntity(
+            baseUrl, request, UserResponseDto.class);
+        
+        // Then
+        assertThat(createResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(createResponse.getBody()).isNotNull();
+        Long userId = createResponse.getBody().getId();
+        
+        // When - Retrieve user
+        ResponseEntity<UserResponseDto> getResponse = restTemplate.getForEntity(
+            baseUrl + "/" + userId, UserResponseDto.class);
+        
+        // Then
+        assertThat(getResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(getResponse.getBody().getEmail()).isEqualTo("e2e@example.com");
+    }
+}
+```
+
+### Test Configuration
+
+```java
+// config/TestConfig.java
+package com.example.app.config;
+
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
+
+@TestConfiguration
+public class TestConfig {
+    
+    @Bean
+    @Primary
+    public SomeService someServiceMock() {
+        return mock(SomeService.class);
+    }
+}
+```
+
+### Using @TestPropertySource
+
+```java
+@SpringBootTest
+@TestPropertySource(properties = {
+    "spring.datasource.url=jdbc:h2:mem:testdb",
+    "spring.jpa.hibernate.ddl-auto=create-drop"
+})
+class PropertySourceTest {
+    // Test implementation
+}
+```
+
+## Best Practices
+
+1. **Test Slices**
+   - Use `@WebMvcTest` for controller tests (faster, isolated)
+   - Use `@DataJpaTest` for repository tests (in-memory database)
+   - Use `@SpringBootTest` for integration tests (full context)
+   - Use `@RestClientTest` for REST client tests
+
+2. **Mocking**
+   - Use `@MockBean` for Spring context beans
+   - Use `@Mock` with `@ExtendWith(MockitoExtension.class)` for unit tests
+   - Use `@SpyBean` when you need partial mocking
+   - Mock external dependencies, not internal services
+
+3. **TestContainers**
+   - Use `@ServiceConnection` (Spring Boot 3.1+) for automatic configuration
+   - Use `@Container` with `@Testcontainers` for lifecycle management
+   - Prefer `@DynamicPropertySource` for older versions
+   - Use shared containers for faster tests when possible
+
+4. **Assertions**
+   - Use AssertJ for fluent assertions
+   - Prefer `assertThat()` over JUnit assertions
+   - Use descriptive assertion messages
+   - Test both positive and negative cases
+
+5. **Test Organization**
+   - Follow AAA pattern (Arrange, Act, Assert)
+   - Use descriptive test method names (`should_ExpectedBehavior_When_StateUnderTest`)
+   - Group related tests with `@Nested`
+   - Keep tests independent and isolated
+
+6. **Performance**
+   - Use test slices to minimize context loading
+   - Use `@DirtiesContext` sparingly
+   - Use `@Sql` for database setup instead of manual inserts
+   - Consider parallel test execution
+
+## Common Pitfalls
+
+- **Loading full context**: Use test slices instead of `@SpringBootTest` everywhere
+- **Shared test state**: Ensure tests are independent
+- **No cleanup**: Use `@Sql` or `@Transactional` for cleanup
+- **Slow tests**: Avoid real database connections in unit tests
+- **Over-mocking**: Don't mock everything, test real behavior when possible
+- **No assertions**: Always verify expected behavior
+- **Brittle tests**: Don't test implementation details
+
+## Advanced Patterns
+
+### Custom Test Slice
+
+```java
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Documented
+@BootstrapWith(CustomTestSliceContextBootstrapper.class)
+public @interface CustomTestSlice {
+    // Custom annotation for specific test configuration
+}
+```
+
+### Parameterized Tests
+
+```java
+@ParameterizedTest
+@ValueSource(strings = {"test1", "test2", "test3"})
+void shouldValidateEmail(String email) {
+    assertThat(isValidEmail(email)).isTrue();
+}
+
+@ParameterizedTest
+@CsvSource({
+    "1, Test User 1",
+    "2, Test User 2",
+    "3, Test User 3"
+})
+void shouldFindUserById(Long id, String expectedName) {
+    User user = userService.findById(id).orElseThrow();
+    assertThat(user.getName()).isEqualTo(expectedName);
+}
+```
+
+### Test Profiles
+
+```java
+@ActiveProfiles("test")
+@SpringBootTest
+class ProfileTest {
+    // Uses application-test.yml properties
+}
+```
+
+### Database Rollback
+
+```java
+@SpringBootTest
+@Transactional
+class TransactionalTest {
+    // Each test runs in a transaction that rolls back
+}
+```
+
+### Conditional Test Execution
+
+```java
+@Test
+@EnabledIfEnvironmentVariable(named = "RUN_INTEGRATION_TESTS", matches = "true")
+void shouldRunOnlyWhenEnabled() {
+    // Test implementation
+}
+```

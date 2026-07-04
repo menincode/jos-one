@@ -155,7 +155,7 @@ ifneq ($(HAS_UPX),1)
 	@echo UPX not on PATH - skipping compression. Install UPX 4.x or set UPX=path\to\upx.exe
 else
 ifeq ($(OS),Windows_NT)
-	@if not exist "$(APP_BIN).bak" copy /Y "$(APP_BIN)" "$(APP_BIN).bak" >nul
+	@if not exist "$(subst /,\,$(APP_BIN)).bak" copy /Y "$(subst /,\,$(APP_BIN))" "$(subst /,\,$(APP_BIN)).bak" >nul
 else
 	@if [ ! -f "$(APP_BIN).bak" ]; then cp "$(APP_BIN)" "$(APP_BIN).bak"; fi
 endif

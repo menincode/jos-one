@@ -20,6 +20,7 @@ from pathlib import Path
 
 from python.services.plugin_downloader import get_plugins_dir
 from python.services.remove_watermark.binaries import LocalBinariesService
+from python.services.video_merge.pipeline import _probe_bitrates, _resolve_target_bitrates
 
 LOGGER = logging.getLogger("jos-desktop.remove-watermark")
 
@@ -510,6 +511,17 @@ class FfmpegDelogoBackend(RemoveLogoBackend):
             dh,
         )
 
+        v_kbps, a_kbps = _probe_bitrates(str(source), ffprobe)
+        target_v, target_a = _resolve_target_bitrates(v_kbps, a_kbps)
+
+        v_codec_args = [
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-b:v", f"{target_v}k",
+            "-maxrate", f"{int(target_v * 1.5)}k",
+            "-bufsize", f"{target_v * 2}k",
+        ]
+
         def emit_pct(pct: int) -> None:
             if emit is not None:
                 emit(pct)
@@ -526,12 +538,7 @@ class FfmpegDelogoBackend(RemoveLogoBackend):
             str(source),
             "-vf",
             delogo_filter,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "18",
+            *v_codec_args,
             "-c:a",
             "copy",
             str(target),
@@ -548,16 +555,11 @@ class FfmpegDelogoBackend(RemoveLogoBackend):
             str(source),
             "-vf",
             delogo_filter,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "18",
+            *v_codec_args,
             "-c:a",
             "aac",
             "-b:a",
-            "192k",
+            f"{target_a}k",
             str(target),
         ]
 
@@ -836,6 +838,17 @@ class FfmpegCropBackend(RemoveLogoBackend):
             normalize_logo_zoom_percent(row.zoom_percent),
         )
 
+        v_kbps, a_kbps = _probe_bitrates(str(source), ffprobe)
+        target_v, target_a = _resolve_target_bitrates(v_kbps, a_kbps)
+
+        v_codec_args = [
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-b:v", f"{target_v}k",
+            "-maxrate", f"{int(target_v * 1.5)}k",
+            "-bufsize", f"{target_v * 2}k",
+        ]
+
         def emit_pct(pct: int) -> None:
             if emit is not None:
                 emit(pct)
@@ -890,12 +903,7 @@ class FfmpegCropBackend(RemoveLogoBackend):
             str(source),
             "-vf",
             crop_filter,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "18",
+            *v_codec_args,
             "-c:a",
             "copy",
             str(encode_target),
@@ -912,16 +920,11 @@ class FfmpegCropBackend(RemoveLogoBackend):
             str(source),
             "-vf",
             crop_filter,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "18",
+            *v_codec_args,
             "-c:a",
             "aac",
             "-b:a",
-            "192k",
+            f"{target_a}k",
             str(encode_target),
         ]
 

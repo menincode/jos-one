@@ -1,0 +1,280 @@
+---
+name: databases-redis
+description: Best practices and patterns for Redis
+---
+
+# Redis
+
+## Description
+
+Redis is an in-memory data structure store used as a database, cache, message broker, and streaming engine. Optimized for high-performance, low-latency operations.
+
+## When to Use
+
+- Caching frequently accessed data
+- Session storage
+- Real-time leaderboards and counters
+- Pub/Sub messaging
+- Rate limiting
+- Distributed locks
+- Queue management
+
+---
+
+## Core Patterns
+
+### Caching Patterns
+
+```python
+# Cache-aside pattern
+def get_user(user_id):
+    # Try cache first
+    cached = redis.get(f"user:{user_id}")
+    if cached:
+        return json.loads(cached)
+    
+    # Cache miss - fetch from database
+    user = db.get_user(user_id)
+    if user:
+        # Store in cache with TTL
+        redis.setex(
+            f"user:{user_id}",
+            3600,  # 1 hour TTL
+            json.dumps(user)
+        )
+    return user
+
+# Write-through pattern
+def update_user(user_id, data):
+    # Update database
+    db.update_user(user_id, data)
+    # Update cache
+    redis.setex(
+        f"user:{user_id}",
+        3600,
+        json.dumps(data)
+    )
+
+# Write-behind pattern (async)
+def update_user_async(user_id, data):
+    # Update cache immediately
+    redis.setex(f"user:{user_id}", 3600, json.dumps(data))
+    # Queue database update
+    queue.enqueue(db.update_user, user_id, data)
+```
+
+### Data Structures
+
+```python
+# Strings - simple key-value
+redis.set("key", "value", ex=3600)  # with expiration
+redis.get("key")
+
+# Hashes - object storage
+redis.hset("user:123", mapping={
+    "name": "John",
+    "email": "john@example.com",
+    "age": 30
+})
+redis.hgetall("user:123")
+
+# Lists - queues and stacks
+redis.lpush("queue:emails", "email1", "email2")
+redis.rpop("queue:emails")  # FIFO queue
+redis.lrange("queue:emails", 0, -1)
+
+# Sets - unique collections
+redis.sadd("tags:post:123", "python", "redis", "cache")
+redis.smembers("tags:post:123")
+redis.sinter("tags:post:123", "tags:post:456")  # intersection
+
+# Sorted Sets - leaderboards
+redis.zadd("leaderboard", {"user:1": 1000, "user:2": 2000})
+redis.zrevrange("leaderboard", 0, 9, withscores=True)  # top 10
+```
+
+### Pub/Sub Messaging
+
+```python
+# Publisher
+redis.publish("channel:notifications", json.dumps({
+    "type": "user_created",
+    "user_id": 123
+}))
+
+# Subscriber
+pubsub = redis.pubsub()
+pubsub.subscribe("channel:notifications")
+
+for message in pubsub.listen():
+    if message['type'] == 'message':
+        data = json.loads(message['data'])
+        handle_notification(data)
+```
+
+### Distributed Locks
+
+```python
+# Acquire lock with expiration
+def acquire_lock(lock_key, timeout=10):
+    identifier = str(uuid.uuid4())
+    end = time.time() + timeout
+    
+    while time.time() < end:
+        if redis.set(lock_key, identifier, nx=True, ex=timeout):
+            return identifier
+        time.sleep(0.001)
+    return False
+
+# Release lock (Lua script for atomicity)
+release_script = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+else
+    return 0
+end
+"""
+
+def release_lock(lock_key, identifier):
+    redis.eval(release_script, 1, lock_key, identifier)
+```
+
+### Rate Limiting
+
+```python
+# Sliding window rate limiter
+def rate_limit(key, limit, window):
+    pipe = redis.pipeline()
+    now = time.time()
+    pipe.zremrangebyscore(key, 0, now - window)
+    pipe.zcard(key)
+    pipe.zadd(key, {str(now): now})
+    pipe.expire(key, window)
+    results = pipe.execute()
+    
+    if results[1] < limit:
+        return True
+    return False
+
+# Usage
+if rate_limit(f"ratelimit:user:{user_id}", limit=100, window=60):
+    process_request()
+else:
+    return "Rate limit exceeded"
+```
+
+### Session Storage
+
+```python
+# Store session
+session_id = str(uuid.uuid4())
+session_data = {
+    "user_id": 123,
+    "username": "john",
+    "login_time": time.time()
+}
+redis.setex(
+    f"session:{session_id}",
+    3600,  # 1 hour
+    json.dumps(session_data)
+)
+
+# Retrieve session
+session = redis.get(f"session:{session_id}")
+if session:
+    return json.loads(session)
+```
+
+## Best Practices
+
+1. **Key Naming**
+   - Use consistent naming convention: `object:type:id:field`
+   - Use colons as separators: `user:123:profile`
+   - Keep keys descriptive but concise
+   - Avoid special characters
+
+2. **Memory Management**
+   - Set appropriate TTLs for all keys
+   - Use eviction policies (allkeys-lru, volatile-lru)
+   - Monitor memory usage with INFO memory
+   - Use data structures efficiently (Hashes vs multiple keys)
+
+3. **Performance**
+   - Use pipelining for multiple operations
+   - Use Lua scripts for atomic operations
+   - Avoid blocking operations (KEYS, SMEMBERS on large sets)
+   - Use SCAN instead of KEYS for iteration
+
+4. **Reliability**
+   - Use Redis Sentinel for high availability
+   - Use Redis Cluster for horizontal scaling
+   - Enable persistence (RDB snapshots + AOF)
+   - Monitor replication lag
+
+5. **Security**
+   - Use AUTH password protection
+   - Bind to specific interfaces
+   - Use TLS for encryption in transit
+   - Limit dangerous commands (FLUSHDB, CONFIG)
+
+## Common Pitfalls
+
+- **No TTL on keys**: Always set expiration for cache data
+- **KEYS command in production**: Use SCAN instead
+- **Large values**: Keep values under 100KB
+- **Blocking operations**: Avoid BLPOP, BRPOP on production
+- **Memory leaks**: Monitor and set eviction policies
+- **No persistence**: Enable RDB or AOF for data durability
+- **Single-threaded blocking**: Use pipelining and async operations
+
+## Advanced Patterns
+
+### Pipeline Operations
+
+```python
+# Batch operations with pipeline
+pipe = redis.pipeline()
+for user_id in user_ids:
+    pipe.get(f"user:{user_id}")
+results = pipe.execute()
+```
+
+### Lua Scripts for Atomicity
+
+```lua
+-- Atomic increment with check
+local current = redis.call('GET', KEYS[1])
+if current and tonumber(current) >= tonumber(ARGV[1]) then
+    return 0
+end
+return redis.call('INCR', KEYS[1])
+```
+
+### Streams for Event Logging
+
+```python
+# Add event to stream
+redis.xadd("events:user", {
+    "type": "login",
+    "user_id": "123",
+    "timestamp": time.time()
+})
+
+# Read from stream
+events = redis.xread({"events:user": "$"}, count=10, block=1000)
+```
+
+### Geospatial Operations
+
+```python
+# Add location
+redis.geoadd("locations:users", longitude, latitude, "user:123")
+
+# Find nearby users
+nearby = redis.georadius(
+    "locations:users",
+    longitude, latitude,
+    radius=5, unit="km",
+    withdist=True
+)
+```

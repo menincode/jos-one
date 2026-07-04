@@ -10,6 +10,7 @@ import { NoAccessPage } from "@/pages/no-access-page";
 import { RemoveWatermarkPage } from "@/pages/remove-watermark-page";
 import { VideoLoopPage } from "@/pages/video-loop-page";
 import { VideoMergePage } from "@/pages/video-merge-page";
+import { SettingsPage } from "@/pages/settings-page";
 
 export function AppRouter() {
   return (
@@ -29,7 +30,7 @@ export function AppRouter() {
             <Route element={<ScopeProtectedRoute scope={APP_SCOPES.VIDEO_LOOP_WRITE} />}>
               <Route path="/loop" element={<VideoLoopPage />} />
             </Route>
-            <Route path="/settings" element={<DefaultAppRedirect />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="/overview" element={<Navigate to="/" replace />} />
             <Route path="/messages" element={<Navigate to="/" replace />} />
             <Route path="/orders" element={<Navigate to="/" replace />} />

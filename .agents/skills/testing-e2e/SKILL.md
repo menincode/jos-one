@@ -1,0 +1,475 @@
+---
+name: testing-e2e
+description: Best practices and patterns for E2E testing with Playwright and Cypress
+---
+
+# E2E Testing
+
+## Description
+
+End-to-end testing with Playwright and Cypress. Focus on testing user-visible behavior and real user workflows across browsers and devices.
+
+## When to Use
+
+- Testing complete user flows
+- Testing critical business paths
+- Cross-browser testing
+- Testing with real backend services
+- Visual regression testing
+
+---
+
+## Core Patterns
+
+### Test Structure
+
+```
+tests/
+â”œâ”€â”€ e2e/
+â”‚   â”œâ”€â”€ auth/
+â”‚   â”‚   â””â”€â”€ login.spec.ts
+â”‚   â”œâ”€â”€ user/
+â”‚   â”‚   â””â”€â”€ user-management.spec.ts
+â”‚   â””â”€â”€ fixtures/
+â”‚       â””â”€â”€ users.ts
+â””â”€â”€ support/
+    â””â”€â”€ page-objects/
+        â””â”€â”€ login.page.ts
+```
+
+### Playwright - Basic Test
+
+```typescript
+// login.spec.ts (Playwright)
+import { test, expect } from '@playwright/test';
+
+test.describe('Login Flow', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/login');
+  });
+
+  test('should login successfully with valid credentials', async ({ page }) => {
+    // Arrange
+    const emailInput = page.getByLabel('Email');
+    const passwordInput = page.getByLabel('Password');
+    const submitButton = page.getByRole('button', { name: /sign in/i });
+
+    // Act
+    await emailInput.fill('user@example.com');
+    await passwordInput.fill('password123');
+    await submitButton.click();
+
+    // Assert
+    await expect(page).toHaveURL('/dashboard');
+    await expect(page.getByText(/welcome/i)).toBeVisible();
+  });
+
+  test('should show error with invalid credentials', async ({ page }) => {
+    await page.getByLabel('Email').fill('invalid@example.com');
+    await page.getByLabel('Password').fill('wrong');
+    await page.getByRole('button', { name: /sign in/i }).click();
+
+    await expect(page.getByText(/invalid credentials/i)).toBeVisible();
+  });
+});
+```
+
+### Playwright - Page Object Model
+
+```typescript
+// page-objects/login.page.ts
+import { Page, Locator } from '@playwright/test';
+
+export class LoginPage {
+  readonly page: Page;
+  readonly emailInput: Locator;
+  readonly passwordInput: Locator;
+  readonly submitButton: Locator;
+  readonly errorMessage: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.emailInput = page.getByLabel('Email');
+    this.passwordInput = page.getByLabel('Password');
+    this.submitButton = page.getByRole('button', { name: /sign in/i });
+    this.errorMessage = page.locator('[role="alert"]');
+  }
+
+  async goto() {
+    await this.page.goto('/login');
+  }
+
+  async login(email: string, password: string) {
+    await this.emailInput.fill(email);
+    await this.passwordInput.fill(password);
+    await this.submitButton.click();
+  }
+
+  async expectErrorMessage(message: string) {
+    await expect(this.errorMessage).toContainText(message);
+  }
+}
+
+// login.spec.ts
+import { test, expect } from '@playwright/test';
+import { LoginPage } from '../support/page-objects/login.page';
+
+test.describe('Login Flow', () => {
+  test('should login successfully', async ({ page }) => {
+    const loginPage = new LoginPage(page);
+    await loginPage.goto();
+    await loginPage.login('user@example.com', 'password123');
+    
+    await expect(page).toHaveURL('/dashboard');
+  });
+});
+```
+
+### Playwright - API Testing
+
+```typescript
+// api.spec.ts
+import { test, expect } from '@playwright/test';
+
+test.describe('API Tests', () => {
+  test('should create user via API', async ({ request }) => {
+    const response = await request.post('/api/users', {
+      data: {
+        email: 'api@example.com',
+        name: 'API User',
+      },
+    });
+
+    expect(response.ok()).toBeTruthy();
+    const user = await response.json();
+    expect(user).toHaveProperty('id');
+    expect(user.email).toBe('api@example.com');
+  });
+
+  test('should get user by id', async ({ request }) => {
+    // Create user first
+    const createResponse = await request.post('/api/users', {
+      data: { email: 'get@example.com', name: 'Get User' },
+    });
+    const createdUser = await createResponse.json();
+
+    // Get user
+    const getResponse = await request.get(`/api/users/${createdUser.id}`);
+    expect(getResponse.ok()).toBeTruthy();
+    
+    const user = await getResponse.json();
+    expect(user.id).toBe(createdUser.id);
+  });
+});
+```
+
+### Playwright - Network Interception
+
+```typescript
+// network.spec.ts
+import { test, expect } from '@playwright/test';
+
+test('should handle API errors gracefully', async ({ page }) => {
+  // Mock API response
+  await page.route('**/api/users', route => {
+    route.fulfill({
+      status: 500,
+      body: JSON.stringify({ error: 'Internal Server Error' }),
+    });
+  });
+
+  await page.goto('/users');
+  await expect(page.getByText(/error loading users/i)).toBeVisible();
+});
+
+test('should retry failed requests', async ({ page }) => {
+  let requestCount = 0;
+  
+  await page.route('**/api/data', route => {
+    requestCount++;
+    if (requestCount === 1) {
+      route.abort();
+    } else {
+      route.fulfill({ json: { data: 'success' } });
+    }
+  });
+
+  await page.goto('/data');
+  // Component should retry on failure
+  await expect(page.getByText('success')).toBeVisible({ timeout: 5000 });
+});
+```
+
+### Cypress - Basic Test
+
+```typescript
+// login.cy.ts (Cypress)
+describe('Login Flow', () => {
+  beforeEach(() => {
+    cy.visit('/login');
+  });
+
+  it('should login successfully with valid credentials', () => {
+    cy.get('[data-testid="email-input"]').type('user@example.com');
+    cy.get('[data-testid="password-input"]').type('password123');
+    cy.get('[data-testid="submit-button"]').click();
+
+    cy.url().should('include', '/dashboard');
+    cy.contains('Welcome').should('be.visible');
+  });
+
+  it('should show error with invalid credentials', () => {
+    cy.get('[data-testid="email-input"]').type('invalid@example.com');
+    cy.get('[data-testid="password-input"]').type('wrong');
+    cy.get('[data-testid="submit-button"]').click();
+
+    cy.get('[data-testid="error-message"]')
+      .should('be.visible')
+      .and('contain', 'Invalid credentials');
+  });
+});
+```
+
+### Cypress - Custom Commands
+
+```typescript
+// support/commands.ts
+declare global {
+  namespace Cypress {
+    interface Chainable {
+      login(email: string, password: string): Chainable<void>;
+      createUser(user: { email: string; name: string }): Chainable<any>;
+    }
+  }
+}
+
+Cypress.Commands.add('login', (email: string, password: string) => {
+  cy.visit('/login');
+  cy.get('[data-testid="email-input"]').type(email);
+  cy.get('[data-testid="password-input"]').type(password);
+  cy.get('[data-testid="submit-button"]').click();
+});
+
+Cypress.Commands.add('createUser', (user) => {
+  return cy.request({
+    method: 'POST',
+    url: '/api/users',
+    body: user,
+  });
+});
+
+// login.cy.ts
+describe('Login', () => {
+  it('should login using custom command', () => {
+    cy.login('user@example.com', 'password123');
+    cy.url().should('include', '/dashboard');
+  });
+});
+```
+
+### Cypress - API Testing
+
+```typescript
+// api.cy.ts
+describe('API Tests', () => {
+  it('should create user via API', () => {
+    cy.request({
+      method: 'POST',
+      url: '/api/users',
+      body: {
+        email: 'api@example.com',
+        name: 'API User',
+      },
+    }).then((response) => {
+      expect(response.status).to.eq(201);
+      expect(response.body).to.have.property('id');
+      expect(response.body.email).to.eq('api@example.com');
+    });
+  });
+
+  it('should get user by id', () => {
+    // Create user first
+    cy.createUser({ email: 'get@example.com', name: 'Get User' }).then(
+      (createResponse) => {
+        const userId = createResponse.body.id;
+
+        // Get user
+        cy.request(`/api/users/${userId}`).then((getResponse) => {
+          expect(getResponse.status).to.eq(200);
+          expect(getResponse.body.id).to.eq(userId);
+        });
+      }
+    );
+  });
+});
+```
+
+### Data Setup and Cleanup
+
+```typescript
+// fixtures/users.ts
+export const testUsers = {
+  admin: {
+    email: 'admin@example.com',
+    password: 'admin123',
+    role: 'admin',
+  },
+  regular: {
+    email: 'user@example.com',
+    password: 'user123',
+    role: 'user',
+  },
+};
+
+// setup.ts (Playwright)
+import { test as setup } from '@playwright/test';
+import { testUsers } from './fixtures/users';
+
+setup('authenticate as admin', async ({ page, request }) => {
+  const response = await request.post('/api/auth/login', {
+    data: testUsers.admin,
+  });
+  const { token } = await response.json();
+  
+  await page.context().addCookies([
+    {
+      name: 'auth-token',
+      value: token,
+      domain: 'localhost',
+      path: '/',
+    },
+  ]);
+});
+
+// user-management.spec.ts
+import { test } from '@playwright/test';
+
+test.use({ storageState: 'playwright/.auth/admin.json' });
+
+test('should access admin dashboard', async ({ page }) => {
+  await page.goto('/admin');
+  // Already authenticated via storageState
+});
+```
+
+## Best Practices
+
+1. **Test Isolation**
+   - Each test should be independent
+   - Use `beforeEach` for setup
+   - Clean up after tests
+   - Don't rely on test execution order
+
+2. **Element Selection**
+   - **Playwright**: Use user-facing attributes (roles, text, labels)
+   - **Cypress**: Use `data-testid` attributes
+   - Avoid brittle selectors (CSS classes, IDs)
+   - Prefer semantic selectors
+
+3. **Page Object Model**
+   - Create page objects for reusable components
+   - Encapsulate page interactions
+   - Reduce duplication
+   - Improve maintainability
+
+4. **API Testing**
+   - Use API for data setup (faster than UI)
+   - Mock external services
+   - Test API endpoints separately
+   - Use API for cleanup
+
+5. **Wait Strategies**
+   - Use auto-waiting (Playwright) or assertions (Cypress)
+   - Avoid fixed delays (`setTimeout`)
+   - Wait for specific conditions
+   - Use web-first assertions
+
+6. **Test Data**
+   - Use fixtures for test data
+   - Create unique data per test
+   - Clean up test data
+   - Use factories for data generation
+
+7. **Performance**
+   - Run tests in parallel
+   - Use headless mode in CI
+   - Optimize test execution time
+   - Use test sharding for large suites
+
+## Common Pitfalls
+
+- **Shared state**: Ensure tests are independent
+- **Brittle selectors**: Avoid CSS classes and IDs
+- **Fixed delays**: Use smart waits instead
+- **Testing third-party services**: Mock external APIs
+- **No cleanup**: Clean up test data
+- **Slow tests**: Use API for setup, not UI
+- **Flaky tests**: Ensure proper waits and isolation
+
+## Advanced Patterns
+
+### Visual Regression Testing
+
+```typescript
+// visual.spec.ts (Playwright)
+import { test, expect } from '@playwright/test';
+
+test('should match screenshot', async ({ page }) => {
+  await page.goto('/dashboard');
+  await expect(page).toHaveScreenshot('dashboard.png');
+});
+```
+
+### Cross-Browser Testing
+
+```typescript
+// browsers.spec.ts
+import { test } from '@playwright/test';
+
+['chromium', 'firefox', 'webkit'].forEach((browserName) => {
+  test.describe(`Tests on ${browserName}`, () => {
+    test.use({ browserName });
+
+    test('should work across browsers', async ({ page }) => {
+      await page.goto('/');
+      // Test implementation
+    });
+  });
+});
+```
+
+### Mobile Testing
+
+```typescript
+// mobile.spec.ts
+import { test, devices } from '@playwright/test';
+
+test.use(devices['iPhone 13']);
+
+test('should work on mobile', async ({ page }) => {
+  await page.goto('/');
+  // Mobile-specific tests
+});
+```
+
+### Parallel Execution
+
+```typescript
+// playwright.config.ts
+export default {
+  workers: process.env.CI ? 2 : 4,
+  fullyParallel: true,
+};
+```
+
+### Test Retries
+
+```typescript
+// playwright.config.ts
+export default {
+  retries: process.env.CI ? 2 : 0,
+  use: {
+    trace: 'on-first-retry',
+  },
+};
+```

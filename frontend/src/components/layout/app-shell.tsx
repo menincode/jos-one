@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Eraser, Film, Repeat } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eraser, Film, Repeat, Settings } from "lucide-react";
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
@@ -15,6 +15,7 @@ const NAV_ICONS = {
   videoMerge: Film,
   watermark: Eraser,
   videoLoop: Repeat,
+  settings: Settings,
 } as const;
 
 const WORKSPACE_ROUTES = new Set(["/", "/watermark", "/loop", "/no-access"]);

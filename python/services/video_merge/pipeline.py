@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 from python.path_display import relativize_ffmpeg_cmd_for_log
 from python.services.plugin_downloader import get_ffmpeg_path, get_ffprobe_path
+from python.services.settings_service import get_app_settings
 from python.services.video_merge.io import ExportRenderConfig, probe_media
 from python.services.video_merge import chapter_timestamps, mix_filter_graph, transition_spec
 
@@ -69,6 +70,12 @@ OUTPUT_METADATA_ARGS = [
     "encoder=",
 ]
 AAC_ARGS = ["-c:a", "aac", "-b:a", "192k"]
+
+def _audio_codec_args(target_a_kbps: int | None = None) -> list[str]:
+    if target_a_kbps is not None:
+        return ["-c:a", "aac", "-b:a", f"{target_a_kbps}k"]
+    return list(AAC_ARGS)
+
 
 _TIME_RE = re.compile(r"time=(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)")
 _DURATION_RE = re.compile(
@@ -147,6 +154,35 @@ def _probe_media(path: str, ffprobe: Path) -> dict[str, Any] | None:
     return probe_media(path, ffprobe)
 
 
+def _probe_bitrates(path: str, ffprobe: Path) -> tuple[int, int]:
+    meta = probe_media(path, ffprobe)
+    if not meta:
+        return 0, 0
+    v_br = 0
+    a_br = 0
+    for stream in meta.get("streams") or []:
+        codec_type = stream.get("codec_type")
+        br = stream.get("bit_rate")
+        if br:
+            try:
+                val = int(br) // 1000
+                if codec_type == "video":
+                    v_br = max(v_br, val)
+                elif codec_type == "audio":
+                    a_br = max(a_br, val)
+            except (ValueError, TypeError):
+                pass
+    if v_br == 0:
+        fmt = meta.get("format") or {}
+        fmt_br = fmt.get("bit_rate")
+        if fmt_br:
+            try:
+                v_br = int(fmt_br) // 1000
+            except (ValueError, TypeError):
+                pass
+    return v_br, a_br
+
+
 def _register_proc(proc: subprocess.Popen[Any]) -> None:
     try:
         from python.services.video_merge import job as merge_job
@@ -174,8 +210,30 @@ def log_ffmpeg_command_before_render(label: str, cmd: list[str]) -> None:
     _ffmpeg_log.info(message)
 
 
-def _video_codec_args(ffmpeg_bin: Path) -> list[str]:
+def _resolve_target_bitrates(detected_v: int, detected_a: int) -> tuple[int, int]:
+    app_settings = get_app_settings()
+    if app_settings.get("enable_custom_bitrate"):
+        return app_settings["custom_video_bitrate"], app_settings["custom_audio_bitrate"]
+    return max(5000, detected_v), max(192, detected_a)
+
+def _video_codec_args(ffmpeg_bin: Path, target_v_kbps: int | None = None) -> list[str]:
     """H.264 encoder args (CPU libx264 only)."""
+    if target_v_kbps is not None:
+        _ffmpeg_log.info(f"Using CPU encoder (libx264) with target bitrate {target_v_kbps}k")
+        return [
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-preset",
+            "veryfast",
+            "-b:v",
+            f"{target_v_kbps}k",
+            "-maxrate",
+            f"{int(target_v_kbps * 1.5)}k",
+            "-bufsize",
+            f"{target_v_kbps * 2}k",
+        ]
     _ffmpeg_log.info("Using CPU encoder (libx264 preset=veryfast)")
     return list(_X264_ARGS_FAST)
 
@@ -675,7 +733,7 @@ def _render_segment(
         filter_complex = vchain
         maps = ["-map", "[vout]"]
 
-    def build_cmd(codec_args: list[str]) -> list[str]:
+    def build_cmd(codec_args: list[str], a_codec_args: list[str]) -> list[str]:
         out = [
             str(ffmpeg_bin),
             "-y",
@@ -693,14 +751,17 @@ def _render_segment(
             ]
         )
         if has_audio:
-            out.extend(AAC_ARGS)
+            out.extend(a_codec_args)
         else:
             out.append("-an")
         out.extend(OUTPUT_METADATA_ARGS)
         out.append(str(dest))
         return out
 
-    cmd = build_cmd(_video_codec_args(ffmpeg_bin))
+    v_kbps, a_kbps = _probe_bitrates(str(src), ffprobe_bin)
+    target_v, target_a = _resolve_target_bitrates(v_kbps, a_kbps)
+
+    cmd = build_cmd(_video_codec_args(ffmpeg_bin, target_v), _audio_codec_args(target_a))
     log_ffmpeg_command_before_render(
         f"Render segment {src.name} → {dest.name}",
         cmd,
@@ -974,6 +1035,8 @@ def _xfade_two_segments(
     transition_duration: float,
     ffmpeg_bin: Path,
     include_audio: bool,
+    v_codec_args: list[str],
+    a_codec_args: list[str],
     on_progress: Callable[[float | None, float | None], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> tuple[bool, str, str]:
@@ -1012,10 +1075,10 @@ def _xfade_two_segments(
         "[vout]",
     ]
     if include_audio:
-        cmd.extend(["-map", "[aout]", *AAC_ARGS])
+        cmd.extend(["-map", "[aout]", *a_codec_args])
     else:
         cmd.append("-an")
-    cmd.extend(_video_codec_args(ffmpeg_bin))
+    cmd.extend(v_codec_args)
     cmd.extend(_FFMPEG_JOIN_RESOURCE_ARGS)
     cmd.extend(OUTPUT_METADATA_ARGS)
     cmd.append(str(output_path))
@@ -1064,6 +1127,16 @@ def _xfade_segments_pairwise(
     current_dur = durations[0]
     last_log = ""
 
+    max_v = 0
+    max_a = 0
+    for path in segment_paths:
+        v, a = _probe_bitrates(str(path), ffprobe_bin)
+        max_v = max(max_v, v)
+        max_a = max(max_a, a)
+    target_v, target_a = _resolve_target_bitrates(max_v, max_a)
+    v_codec_args = _video_codec_args(ffmpeg_bin, target_v)
+    a_codec_args = _audio_codec_args(target_a)
+
     for index in range(1, len(segment_paths)):
         if cancel_check and cancel_check():
             return False, "Đã hủy.", last_log
@@ -1081,6 +1154,8 @@ def _xfade_segments_pairwise(
             transition_duration=transition_durations[index - 1],
             ffmpeg_bin=ffmpeg_bin,
             include_audio=include_audio,
+            v_codec_args=v_codec_args,
+            a_codec_args=a_codec_args,
             on_progress=on_progress,
             cancel_check=cancel_check,
         )
@@ -1174,13 +1249,13 @@ def _xfade_segments(
                 _parse_speed_from_log(chunk),
             )
 
-    def build_cmd(codec_args: list[str]) -> list[str]:
+    def build_cmd(codec_args: list[str], a_codec_args: list[str]) -> list[str]:
         cmd = [str(ffmpeg_bin), "-y"]
         for path in segment_paths:
             cmd.extend(["-i", str(path.resolve())])
         cmd.extend(["-filter_complex", filter_complex, "-map", "[vout]"])
         if include_audio:
-            cmd.extend(["-map", "[aout]", *AAC_ARGS])
+            cmd.extend(["-map", "[aout]", *a_codec_args])
         else:
             cmd.append("-an")
         cmd.extend(codec_args)
@@ -1189,7 +1264,14 @@ def _xfade_segments(
         cmd.append(str(output_path))
         return cmd
 
-    cmd = build_cmd(_video_codec_args(ffmpeg_bin))
+    max_v = 0
+    max_a = 0
+    for path in segment_paths:
+        v, a = _probe_bitrates(str(path), ffprobe_bin)
+        max_v = max(max_v, v)
+        max_a = max(max_a, a)
+    target_v, target_a = _resolve_target_bitrates(max_v, max_a)
+    cmd = build_cmd(_video_codec_args(ffmpeg_bin, target_v), _audio_codec_args(target_a))
     log_ffmpeg_command_before_render(
         f"Xfade join {len(segment_paths)} segments → {output_path.name}",
         cmd,
@@ -1319,7 +1401,7 @@ def _render_mix_unified(
                 _parse_speed_from_log(chunk),
             )
 
-    def build_cmd(codec_args: list[str]) -> list[str]:
+    def build_cmd(codec_args: list[str], a_codec_args: list[str]) -> list[str]:
         return mix_filter_graph.build_unified_mix_command(
             sequence_paths=sequence_paths,
             effects=effects,
@@ -1332,7 +1414,7 @@ def _render_mix_unified(
             codec_args=codec_args,
             build_video_filter_chain=_build_video_filter_chain,
             build_audio_chain=_build_audio_chain,
-            aac_args=AAC_ARGS,
+            aac_args=a_codec_args,
             output_metadata_args=OUTPUT_METADATA_ARGS,
         )
 
@@ -1341,7 +1423,15 @@ def _render_mix_unified(
         clip_names += f", +{len(sequence_paths) - 3}"
     label = f"Mix {len(sequence_paths)} clips ({clip_names}) → {output_path.name}"
 
-    cmd = build_cmd(_video_codec_args(ffmpeg_bin))
+    max_v = 0
+    max_a = 0
+    for path in sequence_paths:
+        v, a = _probe_bitrates(str(path), ffprobe_bin)
+        max_v = max(max_v, v)
+        max_a = max(max_a, a)
+
+    target_v, target_a = _resolve_target_bitrates(max_v, max_a)
+    cmd = build_cmd(_video_codec_args(ffmpeg_bin, target_v), _audio_codec_args(target_a))
     log_ffmpeg_command_before_render(label, cmd)
     ok, msg, log = _run_ffmpeg(cmd, on_stderr_line=on_line, cancel_check=cancel_check)
     return ok, msg, log

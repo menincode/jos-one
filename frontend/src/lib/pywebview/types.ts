@@ -67,6 +67,12 @@ export interface ListVideosResult {
   videos: VideoFileItem[];
 }
 
+export interface BridgeAppSettings {
+  enable_custom_bitrate: boolean;
+  custom_video_bitrate: number;
+  custom_audio_bitrate: number;
+}
+
 export interface BridgeLoginSettings {
   remember_account: boolean;
   username: string;
@@ -196,6 +202,12 @@ export interface PyWebViewApi {
   open_image_file_dialog: (directory?: string) => Promise<FolderDialogResult>;
   login: (username: string, password: string) => Promise<BridgeLoginUser>;
   get_ffmpeg_status: () => Promise<BridgeFfmpegStatus>;
+  get_app_settings: () => Promise<BridgeAppSettings>;
+  save_app_settings: (
+    enable_custom_bitrate: boolean,
+    custom_video_bitrate: number,
+    custom_audio_bitrate: number,
+  ) => Promise<BridgeAppSettings>;
   get_login_settings: () => Promise<BridgeLoginSettings>;
   save_login_settings: (
     remember_account: boolean,
@@ -285,6 +297,12 @@ export interface BridgeClient {
   openImageFileDialog: (directory?: string) => Promise<FolderDialogResult>;
   login: (username: string, password: string) => Promise<BridgeLoginUser>;
   getFfmpegStatus: () => Promise<BridgeFfmpegStatus>;
+  getAppSettings: () => Promise<BridgeAppSettings>;
+  saveAppSettings: (
+    enable_custom_bitrate: boolean,
+    custom_video_bitrate: number,
+    custom_audio_bitrate: number,
+  ) => Promise<BridgeAppSettings>;
   getLoginSettings: () => Promise<BridgeLoginSettings>;
   saveLoginSettings: (
     remember_account: boolean,

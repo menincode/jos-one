@@ -22,10 +22,12 @@ from python.services.remove_watermark.listing import list_watermark_video_rows
 from python.services.remove_watermark.runtime import get_remove_watermark_service
 from python.services.remove_watermark.service import RemoveLogoInput
 from python.services.settings_service import (
+    get_app_settings,
     get_login_settings,
     get_remove_watermark_settings,
     get_video_loop_settings,
     get_video_merge_settings,
+    save_app_settings,
     save_login_settings,
     save_remove_watermark_settings,
     save_video_loop_settings,
@@ -143,6 +145,25 @@ class JsApi(JsApiBase):
 
     def get_ffmpeg_status(self) -> dict[str, str | bool]:
         return self._safe_return(get_ffmpeg_status())
+
+    def get_app_settings(self) -> dict:
+        return self._safe_return(get_app_settings())
+
+    def save_app_settings(
+        self,
+        enable_custom_bitrate: bool,
+        custom_video_bitrate: int,
+        custom_audio_bitrate: int,
+    ) -> dict:
+        if not isinstance(enable_custom_bitrate, bool):
+            raise ValueError("save_app_settings: enable_custom_bitrate must be a boolean")
+        if not isinstance(custom_video_bitrate, int):
+            raise ValueError("save_app_settings: custom_video_bitrate must be an integer")
+        if not isinstance(custom_audio_bitrate, int):
+            raise ValueError("save_app_settings: custom_audio_bitrate must be an integer")
+        return self._safe_return(
+            save_app_settings(enable_custom_bitrate, custom_video_bitrate, custom_audio_bitrate)
+        )
 
     def get_login_settings(self) -> dict[str, str | bool]:
         return self._safe_return(get_login_settings())

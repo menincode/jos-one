@@ -1,0 +1,443 @@
+---
+name: frameworks-expressjs
+description: Best practices and patterns for Express.js
+---
+
+# Express.js
+
+## Description
+
+Express.js is a minimal and flexible Node.js web application framework. Provides robust features for building web and mobile applications with middleware support.
+
+## When to Use
+
+- Building REST APIs with Node.js
+- Web applications and backends
+- Simple to medium complexity applications
+- When you need fine-grained control
+
+---
+
+## Core Patterns
+
+### Application Structure
+
+```
+src/
+â”œâ”€â”€ config/
+â”‚   â””â”€â”€ database.js
+â”œâ”€â”€ controllers/
+â”‚   â””â”€â”€ users.controller.js
+â”œâ”€â”€ models/
+â”‚   â””â”€â”€ user.model.js
+â”œâ”€â”€ routes/
+â”‚   â””â”€â”€ users.routes.js
+â”œâ”€â”€ middlewares/
+â”‚   â”œâ”€â”€ auth.middleware.js
+â”‚   â””â”€â”€ error.middleware.js
+â”œâ”€â”€ services/
+â”‚   â””â”€â”€ users.service.js
+â”œâ”€â”€ utils/
+â”‚   â””â”€â”€ validators.js
+â”œâ”€â”€ app.js
+â””â”€â”€ server.js
+```
+
+### Basic Route Setup
+
+```javascript
+// app.js
+const express = require('express');
+const app = express();
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Routes
+app.use('/api/users', require('./routes/users.routes'));
+
+// Error handling middleware (must be last)
+app.use(require('./middlewares/error.middleware'));
+
+module.exports = app;
+
+// server.js
+const app = require('./app');
+const PORT = process.env.PORT || 3001;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+```
+
+### Route Organization
+
+```javascript
+// routes/users.routes.js
+const express = require('express');
+const router = express.Router();
+const usersController = require('../controllers/users.controller');
+const { authenticate } = require('../middlewares/auth.middleware');
+const { validateCreateUser } = require('../middlewares/validation.middleware');
+
+// Public routes
+router.get('/', usersController.getAllUsers);
+router.get('/:id', usersController.getUserById);
+
+// Protected routes
+router.post('/', authenticate, validateCreateUser, usersController.createUser);
+router.put('/:id', authenticate, usersController.updateUser);
+router.delete('/:id', authenticate, usersController.deleteUser);
+
+module.exports = router;
+```
+
+### Controller Pattern
+
+```javascript
+// controllers/users.controller.js
+const usersService = require('../services/users.service');
+const { asyncHandler } = require('../utils/asyncHandler');
+
+exports.getAllUsers = asyncHandler(async (req, res) => {
+  const users = await usersService.findAll();
+  res.json({
+    success: true,
+    data: users,
+  });
+});
+
+exports.getUserById = asyncHandler(async (req, res) => {
+  const user = await usersService.findById(req.params.id);
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: 'User not found',
+    });
+  }
+  res.json({
+    success: true,
+    data: user,
+  });
+});
+
+exports.createUser = asyncHandler(async (req, res) => {
+  const user = await usersService.create(req.body);
+  res.status(201).json({
+    success: true,
+    data: user,
+  });
+});
+```
+
+### Middleware Pattern
+
+```javascript
+// middlewares/auth.middleware.js
+const jwt = require('jsonwebtoken');
+
+exports.authenticate = (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'No token provided',
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({
+      success: false,
+      message: 'Invalid token',
+    });
+  }
+};
+
+// middlewares/validation.middleware.js
+const { body, validationResult } = require('express-validator');
+
+exports.validateCreateUser = [
+  body('email').isEmail().normalizeEmail(),
+  body('name').trim().isLength({ min: 2, max: 50 }),
+  body('password').isLength({ min: 8 }),
+  (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array(),
+      });
+    }
+    next();
+  },
+];
+```
+
+### Error Handling
+
+```javascript
+// middlewares/error.middleware.js
+const errorHandler = (err, req, res, next) => {
+  console.error(err.stack);
+
+  // Mongoose validation error
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({
+      success: false,
+      message: 'Validation Error',
+      errors: Object.values(err.errors).map(e => e.message),
+    });
+  }
+
+  // JWT errors
+  if (err.name === 'JsonWebTokenError') {
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid token',
+    });
+  }
+
+  // Default error
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || 'Internal Server Error',
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+  });
+};
+
+module.exports = errorHandler;
+
+// utils/asyncHandler.js
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
+module.exports = { asyncHandler };
+```
+
+### Service Layer
+
+```javascript
+// services/users.service.js
+const User = require('../models/user.model');
+
+exports.findAll = async () => {
+  return await User.find();
+};
+
+exports.findById = async (id) => {
+  return await User.findById(id);
+};
+
+exports.create = async (userData) => {
+  const user = new User(userData);
+  return await user.save();
+};
+
+exports.update = async (id, userData) => {
+  return await User.findByIdAndUpdate(id, userData, {
+    new: true,
+    runValidators: true,
+  });
+};
+
+exports.delete = async (id) => {
+  return await User.findByIdAndDelete(id);
+};
+```
+
+### Security Middleware
+
+```javascript
+// app.js
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss-clean');
+
+// Security headers
+app.use(helmet());
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+});
+app.use('/api/', limiter);
+
+// Data sanitization
+app.use(mongoSanitize()); // Prevent NoSQL injection
+app.use(xss()); // Prevent XSS attacks
+```
+
+### Environment Configuration
+
+```javascript
+// config/config.js
+require('dotenv').config();
+
+module.exports = {
+  port: process.env.PORT || 3001,
+  nodeEnv: process.env.NODE_ENV || 'development',
+  database: {
+    url: process.env.DATABASE_URL,
+  },
+  jwt: {
+    secret: process.env.JWT_SECRET,
+    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+  },
+};
+```
+
+## Best Practices
+
+1. **Security**
+   - Use Helmet for security headers
+   - Implement rate limiting
+   - Validate and sanitize all input
+   - Use parameterized queries (prevent SQL injection)
+   - Enable HTTPS/TLS in production
+   - Keep dependencies updated (`npm audit`)
+
+2. **Performance**
+   - Use compression middleware
+   - Enable gzip compression
+   - Cache static assets
+   - Use async/await (avoid blocking)
+   - Set NODE_ENV to "production"
+   - Use reverse proxy (nginx) for static files
+
+3. **Code Organization**
+   - Separate routes, controllers, services
+   - Use middleware for cross-cutting concerns
+   - Keep controllers thin (delegate to services)
+   - Use async handler wrapper for error handling
+   - Follow RESTful conventions
+
+4. **Error Handling**
+   - Use centralized error handling middleware
+   - Return consistent error responses
+   - Log errors appropriately
+   - Handle async errors with try-catch or asyncHandler
+   - Use appropriate HTTP status codes
+
+5. **Validation**
+   - Validate all user input
+   - Use express-validator
+   - Sanitize data (prevent XSS, NoSQL injection)
+   - Validate file uploads
+   - Set request size limits
+
+6. **Testing**
+   - Use supertest for API testing
+   - Mock external dependencies
+   - Test middleware in isolation
+   - Test error scenarios
+   - Use test databases
+
+## Common Pitfalls
+
+- **No input validation**: Always validate user input
+- **Synchronous operations**: Use async/await, avoid blocking
+- **No error handling**: Implement error middleware
+- **Security vulnerabilities**: Use Helmet, rate limiting, sanitization
+- **No logging**: Implement proper logging
+- **Missing CORS**: Configure CORS properly
+- **No compression**: Enable gzip compression
+- **Blocking I/O**: Use async operations
+
+## Advanced Patterns
+
+### Request Logging
+
+```javascript
+// middlewares/logger.middleware.js
+const morgan = require('morgan');
+
+// Development format
+if (process.env.NODE_ENV === 'development') {
+  app.use(morgan('dev'));
+} else {
+  // Production format
+  app.use(morgan('combined'));
+}
+```
+
+### CORS Configuration
+
+```javascript
+// middlewares/cors.middleware.js
+const cors = require('cors');
+
+const corsOptions = {
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
+  credentials: true,
+  optionsSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
+```
+
+### File Upload
+
+```javascript
+// middlewares/upload.middleware.js
+const multer = require('multer');
+const path = require('path');
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    if (['.jpg', '.jpeg', '.png'].includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type'));
+    }
+  },
+});
+
+// Usage
+router.post('/upload', upload.single('image'), (req, res) => {
+  res.json({ file: req.file });
+});
+```
+
+### Database Connection
+
+```javascript
+// config/database.js
+const mongoose = require('mongoose');
+
+const connectDB = async () => {
+  try {
+    const conn = await mongoose.connect(process.env.DATABASE_URL, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    console.log(`MongoDB Connected: ${conn.connection.host}`);
+  } catch (error) {
+    console.error(`Error: ${error.message}`);
+    process.exit(1);
+  }
+};
+
+module.exports = connectDB;
+```

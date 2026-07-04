@@ -84,6 +84,13 @@ export const APP_NAV_ITEMS = [
     iconTone: "green",
     requiredScope: "video_loop:write",
   },
+  {
+    id: "settings",
+    path: "/settings",
+    label: "Cài đặt",
+    iconTone: "blue",
+    requiredScope: undefined,
+  },
 ] as const satisfies ReadonlyArray<{
   id: string;
   path: string;

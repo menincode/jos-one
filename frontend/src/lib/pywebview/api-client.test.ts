@@ -20,6 +20,8 @@ function stubApi(overrides: Partial<PyWebViewApi> = {}): PyWebViewApi {
     open_image_file_dialog: vi.fn(),
     login: vi.fn(),
     get_ffmpeg_status: vi.fn(),
+    get_app_settings: vi.fn(),
+    save_app_settings: vi.fn(),
     get_login_settings: vi.fn(),
     save_login_settings: vi.fn(),
     get_video_merge_settings: vi.fn(),

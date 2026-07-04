@@ -39,6 +39,10 @@ KEY_LOOP_OUTPUT = "video_loop.output_folder"
 KEY_LOOP_COUNT = "video_loop.loop_count"
 KEY_LOOP_THREADS = "video_loop.thread_count"
 
+KEY_APP_ENABLE_CUSTOM_BITRATE = "app.enable_custom_bitrate"
+KEY_APP_CUSTOM_VIDEO_BITRATE = "app.custom_video_bitrate"
+KEY_APP_CUSTOM_AUDIO_BITRATE = "app.custom_audio_bitrate"
+
 DEFAULT_VIDEO_EXPORT: dict[str, str] = {
     "format": "mp4",
     "resolution": "1920x1080",
@@ -286,3 +290,41 @@ def save_video_loop_settings(
     set_setting(KEY_LOOP_COUNT, str(safe_count))
     set_setting(KEY_LOOP_THREADS, str(safe_threads))
     return get_video_loop_settings()
+
+
+def get_app_settings() -> dict[str, Any]:
+    enable = _parse_bool(get_setting(KEY_APP_ENABLE_CUSTOM_BITRATE, "0"))
+    
+    raw_v = get_setting(KEY_APP_CUSTOM_VIDEO_BITRATE, "5000").strip()
+    try:
+        custom_video_bitrate = int(raw_v)
+    except ValueError:
+        custom_video_bitrate = 5000
+        
+    raw_a = get_setting(KEY_APP_CUSTOM_AUDIO_BITRATE, "192").strip()
+    try:
+        custom_audio_bitrate = int(raw_a)
+    except ValueError:
+        custom_audio_bitrate = 192
+        
+    return {
+        "enable_custom_bitrate": enable,
+        "custom_video_bitrate": custom_video_bitrate,
+        "custom_audio_bitrate": custom_audio_bitrate,
+    }
+
+
+def save_app_settings(
+    enable_custom_bitrate: bool,
+    custom_video_bitrate: int,
+    custom_audio_bitrate: int,
+) -> dict[str, Any]:
+    set_setting(KEY_APP_ENABLE_CUSTOM_BITRATE, "1" if enable_custom_bitrate else "0")
+    
+    safe_video = max(100, int(custom_video_bitrate or 5000))
+    safe_audio = max(32, int(custom_audio_bitrate or 192))
+    
+    set_setting(KEY_APP_CUSTOM_VIDEO_BITRATE, str(safe_video))
+    set_setting(KEY_APP_CUSTOM_AUDIO_BITRATE, str(safe_audio))
+    
+    return get_app_settings()

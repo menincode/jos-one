@@ -165,7 +165,7 @@ def test_filter_chain_order() -> None:
     pos_fps = chain.index("fps=30")
     pos_speed = chain.index("setpts=PTS/0.950000")
     pos_fmt = chain.index("format=yuv420p")
-    assert pos_start < pos_scale < pos_crop < pos_fps < pos_speed < pos_fmt
+    assert pos_start < pos_scale < pos_crop < pos_speed < pos_fps < pos_fmt
 
 
 def test_filter_chain_skips_fps_when_source_matches_export() -> None:

@@ -12,6 +12,7 @@ import type {
   BridgeFfmpegStatus,
   BridgeLoginFailure,
   BridgeLoginSettings,
+  BridgeAppSettings,
   BridgeLoginUser,
   BridgeRemoveWatermarkSettings,
   BridgeVideoLoopJobStatus,
@@ -179,6 +180,20 @@ function createMockClient(): BridgeClient {
       ffmpeg_path: "",
       ffprobe_path: "",
       storage_dir: "",
+    }),
+    getAppSettings: async () => ({
+      enable_custom_bitrate: false,
+      custom_video_bitrate: 5000,
+      custom_audio_bitrate: 192,
+    }),
+    saveAppSettings: async (
+      enable_custom_bitrate: boolean,
+      custom_video_bitrate: number,
+      custom_audio_bitrate: number,
+    ) => ({
+      enable_custom_bitrate,
+      custom_video_bitrate,
+      custom_audio_bitrate,
     }),
     getLoginSettings: async () => ({
       remember_account: false,
@@ -359,6 +374,18 @@ function createRealClient(api: PyWebViewApi): BridgeClient {
     openImageFileDialog: (directory = "") =>
       call<FolderDialogResult>("open_image_file_dialog", directory),
     getFfmpegStatus: () => call<BridgeFfmpegStatus>("get_ffmpeg_status"),
+    getAppSettings: () => call<BridgeAppSettings>("get_app_settings"),
+    saveAppSettings: (
+      enable_custom_bitrate: boolean,
+      custom_video_bitrate: number,
+      custom_audio_bitrate: number,
+    ) =>
+      call<BridgeAppSettings>(
+        "save_app_settings",
+        enable_custom_bitrate,
+        custom_video_bitrate,
+        custom_audio_bitrate,
+      ),
     getLoginSettings: () => call<BridgeLoginSettings>("get_login_settings"),
     saveLoginSettings: (remember_account: boolean, username: string, password: string) =>
       call<BridgeLoginSettings>(

@@ -1,0 +1,598 @@
+---
+name: frameworks-gin
+description: Best practices and patterns for Gin framework
+---
+
+# Gin Framework
+
+## Description
+
+Gin is a high-performance HTTP web framework written in Go. Features fast routing, middleware support, JSON validation, and a simple API.
+
+## When to Use
+
+- Building REST APIs with Go
+- High-performance web applications
+- Microservices
+- Applications requiring fast routing
+
+---
+
+## Core Patterns
+
+### Project Structure
+
+```
+cmd/
+â””â”€â”€ server/
+    â””â”€â”€ main.go
+internal/
+â”œâ”€â”€ handlers/
+â”‚   â””â”€â”€ user_handler.go
+â”œâ”€â”€ services/
+â”‚   â””â”€â”€ user_service.go
+â”œâ”€â”€ repositories/
+â”‚   â””â”€â”€ user_repository.go
+â”œâ”€â”€ models/
+â”‚   â””â”€â”€ user.go
+â”œâ”€â”€ middleware/
+â”‚   â”œâ”€â”€ auth.go
+â”‚   â””â”€â”€ logger.go
+â””â”€â”€ routes/
+    â””â”€â”€ routes.go
+configs/
+â””â”€â”€ config.go
+```
+
+### Basic Setup
+
+```go
+// cmd/server/main.go
+package main
+
+import (
+    "github.com/gin-gonic/gin"
+    "your-app/internal/routes"
+    "your-app/configs"
+)
+
+func main() {
+    // Set release mode for production
+    gin.SetMode(gin.ReleaseMode)
+    
+    r := gin.Default()
+    
+    // Apply global middleware
+    r.Use(gin.Logger())
+    r.Use(gin.Recovery())
+    
+    // Setup routes
+    routes.SetupRoutes(r)
+    
+    // Start server
+    r.Run(":8080")
+}
+```
+
+### Route Organization
+
+```go
+// internal/routes/routes.go
+package routes
+
+import (
+    "github.com/gin-gonic/gin"
+    "your-app/internal/handlers"
+    "your-app/internal/middleware"
+)
+
+func SetupRoutes(r *gin.Engine) {
+    // Public routes
+    public := r.Group("/api/v1")
+    {
+        public.POST("/auth/login", handlers.Login)
+        public.POST("/auth/register", handlers.Register)
+    }
+    
+    // Protected routes
+    protected := r.Group("/api/v1")
+    protected.Use(middleware.AuthMiddleware())
+    {
+        users := protected.Group("/users")
+        {
+            users.GET("", handlers.GetUsers)
+            users.GET("/:id", handlers.GetUser)
+            users.POST("", handlers.CreateUser)
+            users.PUT("/:id", handlers.UpdateUser)
+            users.DELETE("/:id", handlers.DeleteUser)
+        }
+    }
+}
+```
+
+### Handler Pattern
+
+```go
+// internal/handlers/user_handler.go
+package handlers
+
+import (
+    "net/http"
+    "strconv"
+    
+    "github.com/gin-gonic/gin"
+    "your-app/internal/models"
+    "your-app/internal/services"
+)
+
+type UserHandler struct {
+    userService *services.UserService
+}
+
+func NewUserHandler(userService *services.UserService) *UserHandler {
+    return &UserHandler{userService: userService}
+}
+
+func (h *UserHandler) GetUsers(c *gin.Context) {
+    users, err := h.userService.GetAll()
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"data": users})
+}
+
+func (h *UserHandler) GetUser(c *gin.Context) {
+    id, err := strconv.Atoi(c.Param("id"))
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+        return
+    }
+    
+    user, err := h.userService.GetByID(id)
+    if err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+        return
+    }
+    
+    c.JSON(http.StatusOK, gin.H{"data": user})
+}
+
+func (h *UserHandler) CreateUser(c *gin.Context) {
+    var req models.CreateUserRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    
+    user, err := h.userService.Create(&req)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    
+    c.JSON(http.StatusCreated, gin.H{"data": user})
+}
+```
+
+### Request Binding and Validation
+
+```go
+// internal/models/user.go
+package models
+
+import "github.com/go-playground/validator/v10"
+
+type CreateUserRequest struct {
+    Email    string `json:"email" binding:"required,email"`
+    Name     string `json:"name" binding:"required,min=2,max=50"`
+    Password string `json:"password" binding:"required,min=8"`
+}
+
+type UpdateUserRequest struct {
+    Name string `json:"name" binding:"omitempty,min=2,max=50"`
+}
+
+type UserResponse struct {
+    ID        int    `json:"id"`
+    Email     string `json:"email"`
+    Name      string `json:"name"`
+    CreatedAt string `json:"created_at"`
+}
+
+// Custom validator
+var validate *validator.Validate
+
+func init() {
+    validate = validator.New()
+}
+
+func (r *CreateUserRequest) Validate() error {
+    return validate.Struct(r)
+}
+```
+
+### Middleware Pattern
+
+```go
+// internal/middleware/auth.go
+package middleware
+
+import (
+    "net/http"
+    "strings"
+    
+    "github.com/gin-gonic/gin"
+    "your-app/internal/utils"
+)
+
+func AuthMiddleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        authHeader := c.GetHeader("Authorization")
+        if authHeader == "" {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+            c.Abort()
+            return
+        }
+        
+        tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+        if tokenString == authHeader {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization format"})
+            c.Abort()
+            return
+        }
+        
+        claims, err := utils.ValidateToken(tokenString)
+        if err != nil {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+            c.Abort()
+            return
+        }
+        
+        // Set user info in context
+        c.Set("userID", claims.UserID)
+        c.Set("email", claims.Email)
+        
+        c.Next()
+    }
+}
+
+// internal/middleware/logger.go
+package middleware
+
+import (
+    "time"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/sirupsen/logrus"
+)
+
+func LoggerMiddleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        start := time.Now()
+        path := c.Request.URL.Path
+        
+        c.Next()
+        
+        latency := time.Since(start)
+        logrus.WithFields(logrus.Fields{
+            "status":  c.Writer.Status(),
+            "method":  c.Request.Method,
+            "path":    path,
+            "latency": latency,
+            "ip":      c.ClientIP(),
+        }).Info("HTTP Request")
+    }
+}
+```
+
+### Service Layer
+
+```go
+// internal/services/user_service.go
+package services
+
+import (
+    "errors"
+    "your-app/internal/models"
+    "your-app/internal/repositories"
+)
+
+type UserService struct {
+    userRepo *repositories.UserRepository
+}
+
+func NewUserService(userRepo *repositories.UserRepository) *UserService {
+    return &UserService{userRepo: userRepo}
+}
+
+func (s *UserService) GetAll() ([]*models.UserResponse, error) {
+    return s.userRepo.FindAll()
+}
+
+func (s *UserService) GetByID(id int) (*models.UserResponse, error) {
+    user, err := s.userRepo.FindByID(id)
+    if err != nil {
+        return nil, errors.New("user not found")
+    }
+    return user, nil
+}
+
+func (s *UserService) Create(req *models.CreateUserRequest) (*models.UserResponse, error) {
+    // Validate
+    if err := req.Validate(); err != nil {
+        return nil, err
+    }
+    
+    // Check if email exists
+    exists, _ := s.userRepo.ExistsByEmail(req.Email)
+    if exists {
+        return nil, errors.New("email already exists")
+    }
+    
+    // Create user
+    return s.userRepo.Create(req)
+}
+```
+
+### Error Handling
+
+```go
+// internal/middleware/error_handler.go
+package middleware
+
+import (
+    "net/http"
+    
+    "github.com/gin-gonic/gin"
+)
+
+type ErrorResponse struct {
+    Error   string `json:"error"`
+    Message string `json:"message,omitempty"`
+}
+
+func ErrorHandler() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        c.Next()
+        
+        // Check if there are any errors
+        if len(c.Errors) > 0 {
+            err := c.Errors.Last()
+            
+            switch err.Type {
+            case gin.ErrorTypeBind:
+                c.JSON(http.StatusBadRequest, ErrorResponse{
+                    Error:   "Validation Error",
+                    Message: err.Error(),
+                })
+            case gin.ErrorTypePublic:
+                c.JSON(http.StatusInternalServerError, ErrorResponse{
+                    Error:   "Internal Server Error",
+                    Message: err.Error(),
+                })
+            default:
+                c.JSON(http.StatusInternalServerError, ErrorResponse{
+                    Error: "Internal Server Error",
+                })
+            }
+            
+            c.Abort()
+        }
+    }
+}
+```
+
+### Response Helpers
+
+```go
+// internal/utils/response.go
+package utils
+
+import (
+    "net/http"
+    
+    "github.com/gin-gonic/gin"
+)
+
+func SuccessResponse(c *gin.Context, data interface{}) {
+    c.JSON(http.StatusOK, gin.H{
+        "success": true,
+        "data":    data,
+    })
+}
+
+func CreatedResponse(c *gin.Context, data interface{}) {
+    c.JSON(http.StatusCreated, gin.H{
+        "success": true,
+        "data":    data,
+    })
+}
+
+func ErrorResponse(c *gin.Context, statusCode int, message string) {
+    c.JSON(statusCode, gin.H{
+        "success": false,
+        "error":   message,
+    })
+}
+
+func PaginatedResponse(c *gin.Context, data interface{}, total int, page int, pageSize int) {
+    c.JSON(http.StatusOK, gin.H{
+        "success": true,
+        "data":    data,
+        "pagination": gin.H{
+            "total":    total,
+            "page":     page,
+            "pageSize": pageSize,
+            "pages":    (total + pageSize - 1) / pageSize,
+        },
+    })
+}
+```
+
+## Best Practices
+
+1. **Project Structure**
+   - Use `cmd/` for application entry points
+   - Use `internal/` for private application code
+   - Separate handlers, services, repositories
+   - Group related routes with route groups
+
+2. **Routing**
+   - Use route groups for API versioning (`/api/v1/`)
+   - Apply middleware selectively to groups
+   - Keep route definitions organized
+   - Use nested groups for resource organization
+
+3. **Request Handling**
+   - Always validate input with struct tags
+   - Use `ShouldBindJSON` for JSON requests
+   - Use `ShouldBindQuery` for query parameters
+   - Return appropriate HTTP status codes
+
+4. **Middleware**
+   - Apply middleware selectively (not globally)
+   - Order matters: global â†’ group â†’ route â†’ handler
+   - Keep middleware focused and small
+   - Use context to pass data between middleware
+
+5. **Error Handling**
+   - Use centralized error handling middleware
+   - Return consistent error responses
+   - Log errors appropriately
+   - Don't expose internal errors to clients
+
+6. **Performance**
+   - Use `gin.ReleaseMode` in production
+   - Minimize middleware overhead
+   - Use efficient data binding
+   - Avoid unnecessary allocations
+
+7. **Security**
+   - Validate all user input
+   - Use parameterized queries (prevent SQL injection)
+   - Implement rate limiting
+   - Use HTTPS in production
+
+## Common Pitfalls
+
+- **Global middleware on all routes**: Apply selectively
+- **No input validation**: Always validate with struct tags
+- **Panic in handlers**: Use recovery middleware
+- **No error handling**: Implement error middleware
+- **Memory leaks**: Properly close resources
+- **No logging**: Implement structured logging
+- **Blocking operations**: Use goroutines for async work
+- **No rate limiting**: Implement rate limiting middleware
+
+## Advanced Patterns
+
+### Custom Validator
+
+```go
+// internal/validators/custom_validator.go
+package validators
+
+import (
+    "github.com/go-playground/validator/v10"
+    "regexp"
+)
+
+func ValidatePassword(fl validator.FieldLevel) bool {
+    password := fl.Field().String()
+    hasUpper := regexp.MustCompile(`[A-Z]`).MatchString(password)
+    hasLower := regexp.MustCompile(`[a-z]`).MatchString(password)
+    hasNumber := regexp.MustCompile(`[0-9]`).MatchString(password)
+    return hasUpper && hasLower && hasNumber
+}
+
+// Register in main.go
+validate.RegisterValidation("password", ValidatePassword)
+```
+
+### Rate Limiting
+
+```go
+// internal/middleware/rate_limit.go
+package middleware
+
+import (
+    "net/http"
+    
+    "github.com/gin-gonic/gin"
+    "golang.org/x/time/rate"
+)
+
+func RateLimitMiddleware() gin.HandlerFunc {
+    limiter := rate.NewLimiter(100, 10) // 100 requests per second, burst of 10
+    
+    return func(c *gin.Context) {
+        if !limiter.Allow() {
+            c.JSON(http.StatusTooManyRequests, gin.H{"error": "Rate limit exceeded"})
+            c.Abort()
+            return
+        }
+        c.Next()
+    }
+}
+```
+
+### Request ID Middleware
+
+```go
+// internal/middleware/request_id.go
+package middleware
+
+import (
+    "github.com/gin-gonic/gin"
+    "github.com/google/uuid"
+)
+
+func RequestIDMiddleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        requestID := c.GetHeader("X-Request-ID")
+        if requestID == "" {
+            requestID = uuid.New().String()
+        }
+        c.Set("requestID", requestID)
+        c.Header("X-Request-ID", requestID)
+        c.Next()
+    }
+}
+```
+
+### Graceful Shutdown
+
+```go
+// cmd/server/main.go
+func main() {
+    r := gin.Default()
+    routes.SetupRoutes(r)
+    
+    srv := &http.Server{
+        Addr:    ":8080",
+        Handler: r,
+    }
+    
+    go func() {
+        if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            log.Fatalf("listen: %s\n", err)
+        }
+    }()
+    
+    // Wait for interrupt signal
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, os.Interrupt)
+    <-quit
+    
+    log.Println("Shutting down server...")
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    
+    if err := srv.Shutdown(ctx); err != nil {
+        log.Fatal("Server forced to shutdown:", err)
+    }
+    
+    log.Println("Server exited")
+}
+```

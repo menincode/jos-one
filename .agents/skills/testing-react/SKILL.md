@@ -1,0 +1,503 @@
+---
+name: testing-react
+description: Best practices and patterns for React testing with Jest and React Testing Library
+---
+
+# React Testing
+
+## Description
+
+React testing with Jest and React Testing Library. Focus on testing user-visible behavior rather than implementation details, following the guiding principle: "The more your tests resemble the way your software is used, the more confidence they can give you."
+
+## When to Use
+
+- Testing React components
+- Testing user interactions
+- Testing component behavior
+- Testing accessibility
+- Testing hooks and custom hooks
+
+---
+
+## Core Patterns
+
+### Test Structure
+
+```
+src/
+â”œâ”€â”€ components/
+â”‚   â”œâ”€â”€ Button/
+â”‚   â”‚   â”œâ”€â”€ Button.tsx
+â”‚   â”‚   â””â”€â”€ Button.test.tsx
+â”‚   â””â”€â”€ UserForm/
+â”‚       â”œâ”€â”€ UserForm.tsx
+â”‚       â””â”€â”€ UserForm.test.tsx
+â””â”€â”€ __tests__/
+    â””â”€â”€ utils.test.ts
+```
+
+### Basic Component Test
+
+```typescript
+// Button.test.tsx
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Button } from './Button';
+
+describe('Button', () => {
+  it('should render button with text', () => {
+    render(<Button>Click me</Button>);
+    
+    const button = screen.getByRole('button', { name: /click me/i });
+    expect(button).toBeInTheDocument();
+  });
+
+  it('should call onClick when clicked', async () => {
+    const handleClick = jest.fn();
+    const user = userEvent.setup();
+    
+    render(<Button onClick={handleClick}>Click me</Button>);
+    
+    const button = screen.getByRole('button');
+    await user.click(button);
+    
+    expect(handleClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('should be disabled when disabled prop is true', () => {
+    render(<Button disabled>Click me</Button>);
+    
+    const button = screen.getByRole('button');
+    expect(button).toBeDisabled();
+  });
+});
+```
+
+### Form Testing
+
+```typescript
+// UserForm.test.tsx
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { UserForm } from './UserForm';
+
+describe('UserForm', () => {
+  it('should submit form with valid data', async () => {
+    const handleSubmit = jest.fn();
+    const user = userEvent.setup();
+    
+    render(<UserForm onSubmit={handleSubmit} />);
+    
+    // Fill form fields
+    const emailInput = screen.getByLabelText(/email/i);
+    const nameInput = screen.getByLabelText(/name/i);
+    const submitButton = screen.getByRole('button', { name: /submit/i });
+    
+    await user.type(emailInput, 'test@example.com');
+    await user.type(nameInput, 'Test User');
+    await user.click(submitButton);
+    
+    await waitFor(() => {
+      expect(handleSubmit).toHaveBeenCalledWith({
+        email: 'test@example.com',
+        name: 'Test User',
+      });
+    });
+  });
+
+  it('should show validation errors for invalid input', async () => {
+    const user = userEvent.setup();
+    render(<UserForm onSubmit={jest.fn()} />);
+    
+    const emailInput = screen.getByLabelText(/email/i);
+    const submitButton = screen.getByRole('button', { name: /submit/i });
+    
+    await user.type(emailInput, 'invalid-email');
+    await user.click(submitButton);
+    
+    await waitFor(() => {
+      expect(screen.getByText(/invalid email/i)).toBeInTheDocument();
+    });
+  });
+});
+```
+
+### Testing with Context
+
+```typescript
+// ThemeButton.test.tsx
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { ThemeProvider } from '../contexts/ThemeContext';
+import { ThemeButton } from './ThemeButton';
+
+const renderWithTheme = (component: React.ReactElement) => {
+  return render(<ThemeProvider>{component}</ThemeProvider>);
+};
+
+describe('ThemeButton', () => {
+  it('should toggle theme when clicked', async () => {
+    const user = userEvent.setup();
+    renderWithTheme(<ThemeButton />);
+    
+    const button = screen.getByRole('button', { name: /toggle theme/i });
+    await user.click(button);
+    
+    expect(document.body).toHaveClass('dark-theme');
+  });
+});
+```
+
+### Testing Custom Hooks
+
+```typescript
+// useCounter.test.ts
+import { renderHook, act } from '@testing-library/react';
+import { useCounter } from './useCounter';
+
+describe('useCounter', () => {
+  it('should initialize with default value', () => {
+    const { result } = renderHook(() => useCounter());
+    
+    expect(result.current.count).toBe(0);
+  });
+
+  it('should increment count', () => {
+    const { result } = renderHook(() => useCounter());
+    
+    act(() => {
+      result.current.increment();
+    });
+    
+    expect(result.current.count).toBe(1);
+  });
+
+  it('should decrement count', () => {
+    const { result } = renderHook(() => useCounter(5));
+    
+    act(() => {
+      result.current.decrement();
+    });
+    
+    expect(result.current.count).toBe(4);
+  });
+
+  it('should reset count', () => {
+    const { result } = renderHook(() => useCounter(10));
+    
+    act(() => {
+      result.current.increment();
+      result.current.reset();
+    });
+    
+    expect(result.current.count).toBe(10);
+  });
+});
+```
+
+### Testing Async Operations
+
+```typescript
+// UserList.test.tsx
+import { render, screen, waitFor } from '@testing-library/react';
+import { UserList } from './UserList';
+import { fetchUsers } from './api';
+
+jest.mock('./api');
+
+describe('UserList', () => {
+  it('should display users after loading', async () => {
+    const mockUsers = [
+      { id: 1, name: 'User 1', email: 'user1@example.com' },
+      { id: 2, name: 'User 2', email: 'user2@example.com' },
+    ];
+    
+    (fetchUsers as jest.Mock).mockResolvedValue(mockUsers);
+    
+    render(<UserList />);
+    
+    // Check loading state
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+    
+    // Wait for users to load
+    await waitFor(() => {
+      expect(screen.getByText('User 1')).toBeInTheDocument();
+      expect(screen.getByText('User 2')).toBeInTheDocument();
+    });
+    
+    expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+  });
+
+  it('should display error message on fetch failure', async () => {
+    (fetchUsers as jest.Mock).mockRejectedValue(new Error('Failed to fetch'));
+    
+    render(<UserList />);
+    
+    await waitFor(() => {
+      expect(screen.getByText(/error/i)).toBeInTheDocument();
+    });
+  });
+});
+```
+
+### Testing Accessibility
+
+```typescript
+// AccessibleForm.test.tsx
+import { render, screen } from '@testing-library/react';
+import { AccessibleForm } from './AccessibleForm';
+
+describe('AccessibleForm', () => {
+  it('should have proper ARIA labels', () => {
+    render(<AccessibleForm />);
+    
+    const emailInput = screen.getByLabelText(/email address/i);
+    expect(emailInput).toHaveAttribute('aria-required', 'true');
+    
+    const submitButton = screen.getByRole('button', { name: /submit form/i });
+    expect(submitButton).toBeInTheDocument();
+  });
+
+  it('should announce errors to screen readers', async () => {
+    render(<AccessibleForm />);
+    
+    const submitButton = screen.getByRole('button');
+    await userEvent.click(submitButton);
+    
+    const errorMessage = screen.getByRole('alert');
+    expect(errorMessage).toHaveTextContent(/email is required/i);
+  });
+});
+```
+
+### Custom Render Utility
+
+```typescript
+// test-utils.tsx
+import { render, RenderOptions } from '@testing-library/react';
+import { ThemeProvider } from '../contexts/ThemeContext';
+import { AuthProvider } from '../contexts/AuthContext';
+
+const AllTheProviders = ({ children }: { children: React.ReactNode }) => {
+  return (
+    <ThemeProvider>
+      <AuthProvider>
+        {children}
+      </AuthProvider>
+    </ThemeProvider>
+  );
+};
+
+const customRender = (
+  ui: React.ReactElement,
+  options?: Omit<RenderOptions, 'wrapper'>,
+) => render(ui, { wrapper: AllTheProviders, ...options });
+
+export * from '@testing-library/react';
+export { customRender as render };
+```
+
+### Testing Router Components
+
+```typescript
+// Navigation.test.tsx
+import { render, screen } from '@testing-library/react';
+import { BrowserRouter } from 'react-router-dom';
+import { Navigation } from './Navigation';
+
+const renderWithRouter = (component: React.ReactElement) => {
+  return render(<BrowserRouter>{component}</BrowserRouter>);
+};
+
+describe('Navigation', () => {
+  it('should navigate to different routes', () => {
+    renderWithRouter(<Navigation />);
+    
+    const homeLink = screen.getByRole('link', { name: /home/i });
+    const aboutLink = screen.getByRole('link', { name: /about/i });
+    
+    expect(homeLink).toHaveAttribute('href', '/');
+    expect(aboutLink).toHaveAttribute('href', '/about');
+  });
+});
+```
+
+### Testing with Mock Data
+
+```typescript
+// UserCard.test.tsx
+import { render, screen } from '@testing-library/react';
+import { UserCard } from './UserCard';
+
+const mockUser = {
+  id: 1,
+  name: 'John Doe',
+  email: 'john@example.com',
+  avatar: 'https://example.com/avatar.jpg',
+};
+
+describe('UserCard', () => {
+  it('should display user information', () => {
+    render(<UserCard user={mockUser} />);
+    
+    expect(screen.getByText('John Doe')).toBeInTheDocument();
+    expect(screen.getByText('john@example.com')).toBeInTheDocument();
+    expect(screen.getByAltText(/john doe/i)).toHaveAttribute(
+      'src',
+      'https://example.com/avatar.jpg'
+    );
+  });
+});
+```
+
+## Best Practices
+
+1. **Query Priority**
+   - Use `getByRole` first (most accessible)
+   - Use `getByLabelText` for form elements
+   - Use `getByText` for text content
+   - Use `getByTestId` as last resort
+
+2. **Query Methods**
+   - Use `getBy*` when element must exist (throws if not found)
+   - Use `queryBy*` when checking absence (returns null)
+   - Use `findBy*` for async elements (returns promise)
+   - Use `getAllBy*` for multiple elements
+
+3. **User Interactions**
+   - Use `userEvent` over `fireEvent` (more realistic)
+   - Use `userEvent.setup()` for async operations
+   - Simulate real user behavior
+   - Test keyboard navigation
+
+4. **Async Testing**
+   - Use `waitFor` for async operations
+   - Use `findBy*` queries for elements appearing after actions
+   - Avoid fixed delays (`setTimeout`)
+   - Use `act()` when needed (usually automatic)
+
+5. **Test Organization**
+   - Use `describe` blocks for grouping
+   - Use descriptive test names
+   - Follow AAA pattern (Arrange, Act, Assert)
+   - Keep tests independent
+
+6. **Accessibility**
+   - Test with screen readers in mind
+   - Use semantic HTML and ARIA attributes
+   - Test keyboard navigation
+   - Verify focus management
+
+## Common Pitfalls
+
+- **Testing implementation details**: Test behavior, not internal state
+- **Using wrong queries**: Prefer accessible queries
+- **Not awaiting async**: Always await promises and user events
+- **Over-mocking**: Mock only external dependencies
+- **Brittle selectors**: Avoid testing CSS classes or IDs
+- **No cleanup**: Clean up after tests
+- **Testing too much**: Test one thing per test
+
+## Advanced Patterns
+
+### Testing Error Boundaries
+
+```typescript
+// ErrorBoundary.test.tsx
+import { render, screen } from '@testing-library/react';
+import { ErrorBoundary } from './ErrorBoundary';
+
+const ThrowError = ({ shouldThrow }: { shouldThrow: boolean }) => {
+  if (shouldThrow) {
+    throw new Error('Test error');
+  }
+  return <div>No error</div>;
+};
+
+describe('ErrorBoundary', () => {
+  it('should catch errors and display fallback UI', () => {
+    render(
+      <ErrorBoundary>
+        <ThrowError shouldThrow={true} />
+      </ErrorBoundary>
+    );
+    
+    expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
+  });
+});
+```
+
+### Testing Suspense
+
+```typescript
+// SuspenseComponent.test.tsx
+import { render, screen, waitFor } from '@testing-library/react';
+import { Suspense } from 'react';
+import { LazyComponent } from './LazyComponent';
+
+describe('Suspense', () => {
+  it('should show loading state while component loads', async () => {
+    render(
+      <Suspense fallback={<div>Loading...</div>}>
+        <LazyComponent />
+      </Suspense>
+    );
+    
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    
+    await waitFor(() => {
+      expect(screen.getByText('Loaded')).toBeInTheDocument();
+    });
+  });
+});
+```
+
+### Testing with MSW (Mock Service Worker)
+
+```typescript
+// api.test.tsx
+import { setupServer } from 'msw/node';
+import { rest } from 'msw';
+import { render, screen, waitFor } from '@testing-library/react';
+import { UserList } from './UserList';
+
+const server = setupServer(
+  rest.get('/api/users', (req, res, ctx) => {
+    return res(
+      ctx.json([
+        { id: 1, name: 'User 1' },
+        { id: 2, name: 'User 2' },
+      ])
+    );
+  })
+);
+
+beforeAll(() => server.listen());
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());
+
+describe('UserList with MSW', () => {
+  it('should fetch and display users', async () => {
+    render(<UserList />);
+    
+    await waitFor(() => {
+      expect(screen.getByText('User 1')).toBeInTheDocument();
+    });
+  });
+});
+```
+
+### Snapshot Testing
+
+```typescript
+// Component.test.tsx
+import { render } from '@testing-library/react';
+import { Component } from './Component';
+
+describe('Component', () => {
+  it('should match snapshot', () => {
+    const { container } = render(<Component prop="value" />);
+    expect(container).toMatchSnapshot();
+  });
+});
+```

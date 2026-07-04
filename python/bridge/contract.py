@@ -18,6 +18,8 @@ BRIDGE_METHODS: tuple[str, ...] = (
     "open_image_file_dialog",
     "login",
     "get_ffmpeg_status",
+    "get_app_settings",
+    "save_app_settings",
     "get_login_settings",
     "save_login_settings",
     "get_video_merge_settings",
