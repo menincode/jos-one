@@ -623,8 +623,7 @@ def _build_audio_chain(
 ) -> str:
     inner: list[str] = []
     if source_dur and source_dur > 0:
-        out_dur = source_dur / speed if speed > 0 else source_dur
-        inner.append(f"atrim=duration={out_dur:.3f}")
+        inner.append(f"atrim=duration={source_dur:.3f}")
     if abs(speed - 1.0) > 0.001:
         inner.append(f"atempo={speed:.6f}")
     inner.append("asetpts=PTS-STARTPTS")
